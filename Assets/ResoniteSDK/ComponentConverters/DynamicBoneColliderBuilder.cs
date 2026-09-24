@@ -18,20 +18,23 @@ public class DynamicBoneColliderBuilder
     public bool Exists => Container != null;
 
     /// <param name="height">Total height of the capsule, including the caps. Use 0 for a sphere.</param>
-    public void Build(string name, Transform root, Vector3 position, Quaternion rotation, float radius, float height, bool enabled)
+    /// <param name="endRadius">Radius at the +Y end of a tapered capsule. Null for uniform radius.</param>
+    public void Build(string name, Transform root, Vector3 position, Quaternion rotation, float radius, float height, bool enabled,
+        float? endRadius = null)
     {
         radius = Mathf.Max(0, radius);
+        var otherRadius = Mathf.Max(0, endRadius ?? radius);
 
         // Sphere offsets along the local Y axis
         var offsets = new List<float>();
-        var halfLength = Mathf.Max(0, height * 0.5f - radius);
+        var halfLength = Mathf.Max(0, height * 0.5f - Mathf.Max(radius, otherRadius));
 
-        if (halfLength <= 0 || radius <= 0)
+        if (halfLength <= 0 || Mathf.Max(radius, otherRadius) <= 0)
             offsets.Add(0);
         else
         {
-            // Space the spheres so they overlap by at least half the radius
-            var count = Mathf.Clamp(Mathf.CeilToInt(halfLength * 2 / radius) + 1, 2, 16);
+            // Space the spheres so they overlap by at least half the (smaller) radius
+            var count = Mathf.Clamp(Mathf.CeilToInt(halfLength * 2 / Mathf.Max(1e-4f, Mathf.Min(radius, otherRadius))) + 1, 2, 16);
 
             for (int i = 0; i < count; i++)
                 offsets.Add(Mathf.Lerp(-halfLength, halfLength, i / (float)(count - 1)));
@@ -66,7 +69,9 @@ public class DynamicBoneColliderBuilder
             var data = Spheres[i].Data;
 
             data.Enabled = enabled;
-            data.Radius = radius;
+
+            // Tapered capsules interpolate the radius between the ends
+            data.Radius = offsets.Count > 1 ? Mathf.Lerp(radius, otherRadius, i / (float)(offsets.Count - 1)) : Mathf.Max(radius, otherRadius);
         }
     }
 
