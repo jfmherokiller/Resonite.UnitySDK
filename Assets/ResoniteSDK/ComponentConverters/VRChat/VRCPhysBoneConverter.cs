@@ -9,7 +9,7 @@ using UnityEngine;
 /// a reasonably similar feel. They'll likely need some tweaking in Resonite for best results.
 /// </summary>
 [ConvertsComponentType(VRChatTypes.PhysBone)]
-public class VRCPhysBoneConverter : ResoniteSingleComponentConverter<Component, FrooxEngine.DynamicBoneChainWrapper>
+public class VRCPhysBoneConverter : ResoniteSingleComponentConverter<Component, PartialDynamicBoneChainWrapper>
 {
     // VRChat's AdvancedBool enum: False, True, Other
     const int ADVANCED_BOOL_FALSE = 0;
@@ -22,6 +22,14 @@ public class VRCPhysBoneConverter : ResoniteSingleComponentConverter<Component, 
     protected override void UpdateConversion(Component target, IConversionContext context)
     {
         var chain = Binding.Data;
+
+        // Only these are sent, everything else is left at Resonite's defaults
+        Binding.Members = new List<string>
+        {
+            "Inertia", "Damping", "Elasticity", "Stiffness", "Gravity", "UseUserGravityDirection",
+            "SimulateTerminalBones", "IsGrabbable", "DynamicPlayerCollision", "MaxStretchRatio",
+            "BaseBoneRadius", "Bones", "StaticColliders",
+        };
 
         chain.persistent = true;
         chain.Enabled = !(target is Behaviour behaviour) || behaviour.enabled;
@@ -121,7 +129,7 @@ public class VRCPhysBoneConverter : ResoniteSingleComponentConverter<Component, 
                 continue;
 
             // Skip any helper objects that the converters generate
-            if ((child.gameObject.hideFlags & HideFlags.DontSave) != 0)
+            if (GeneratedObjectHelper.IsGenerated(child))
                 continue;
 
             bones.Add((child, depth + 1));
@@ -136,11 +144,16 @@ public class VRCPhysBoneConverter : ResoniteSingleComponentConverter<Component, 
         if (_pendingColliders == null)
             _pendingColliders = new HashSet<Component>();
 
-        foreach (var collider in ReflectionAccessor.GetList(target, "colliders").OfType<Component>())
-        {
-            if (collider == null)
-                continue;
+        var sources = ReflectionAccessor.GetList(target, "colliders").OfType<Component>().Where(c => c != null).ToList();
 
+        // VRCFury global colliders act as extra hand colliders, which affect all PhysBones that allow collision
+        if (chain.DynamicPlayerCollision)
+            foreach (var component in VRChatTypes.FindAvatarRoot(target.transform).GetComponentsInChildren<Component>(true))
+                if (component != null && component.GetType().FullName == VRCFuryTypes.GlobalCollider)
+                    sources.Add(component);
+
+        foreach (var collider in sources)
+        {
             var converter = FindColliderConverter(collider);
 
             if (converter != null)
@@ -163,12 +176,13 @@ public class VRCPhysBoneConverter : ResoniteSingleComponentConverter<Component, 
         }
     }
 
-    static VRCPhysBoneColliderConverter FindColliderConverter(Component collider) =>
-        collider.GetComponents<VRCPhysBoneColliderConverter>().FirstOrDefault(c => c.Target == collider);
+    static IDynamicBoneColliderSource FindColliderConverter(Component collider) =>
+        collider.GetComponents<ResoniteComponentConverter>()
+            .FirstOrDefault(c => c.Target == collider && c is IDynamicBoneColliderSource) as IDynamicBoneColliderSource;
 
-    static void AddColliders(FrooxEngine.DynamicBoneChain chain, VRCPhysBoneColliderConverter converter)
+    static void AddColliders(FrooxEngine.DynamicBoneChain chain, IDynamicBoneColliderSource source)
     {
-        foreach (var sphere in converter.GetColliders())
+        foreach (var sphere in source.GetColliders())
             chain.StaticColliders.Add(sphere);
     }
 

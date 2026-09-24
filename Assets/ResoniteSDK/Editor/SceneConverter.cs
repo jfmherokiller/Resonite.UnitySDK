@@ -64,6 +64,10 @@ public class SceneConverter : IConversionContext
         if (o is FrooxEngine.Slot slot)
             return GetTransformSlotId(slot.Transform);
 
+        // Same for the fields of the slots
+        if (o is SlotActiveField activeField)
+            return GetLinkSlot(activeField.Transform).IsActive.ID;
+
         return _elementToId[o];
     }
     public string GetIdOrAllocate(IWorldElement o) => GetIdOrAllocate(o, out _);
@@ -80,6 +84,15 @@ public class SceneConverter : IConversionContext
 
             allocated = false;
             return GetTransformSlotId(slot.Transform);
+        }
+
+        if (o is SlotActiveField activeField)
+        {
+            if (activeField.Transform == null)
+                throw new Exception($"Slot active field's transform reference is null!");
+
+            allocated = false;
+            return GetLinkSlot(activeField.Transform).IsActive.ID;
         }
 
         if (!_elementToId.TryGetValue(o, out var id))

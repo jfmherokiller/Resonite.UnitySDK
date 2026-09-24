@@ -90,9 +90,9 @@ public class ConstraintData
 public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
     where T : Component
 {
-    public FrooxEngine.VirtualParentWrapper VirtualParent;
-    public FrooxEngine.LookAtWrapper LookAt;
-    public FrooxEngine.CopyGlobalScaleWrapper CopyScale;
+    public PartialVirtualParentWrapper VirtualParent;
+    public PartialLookAtWrapper LookAt;
+    public PartialCopyGlobalScaleWrapper CopyScale;
 
     HashSet<string> _reported = new HashSet<string>();
 
@@ -158,7 +158,10 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
 
     void SetupParent(ConstraintData data, ConstraintSourceData source, GameObject target)
     {
-        var parent = ConverterComponentHelper.EnsureOn(ref VirtualParent, target).Data;
+        var wrapper = ConverterComponentHelper.EnsureOn(ref VirtualParent, target);
+        wrapper.Members = new List<string> { "OverrideParent", "LocalPosition", "LocalRotation", "LocalScale" };
+
+        var parent = wrapper.Data;
 
         parent.persistent = true;
         parent.Enabled = true;
@@ -173,12 +176,14 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
 
     void SetupLookAt(ConstraintData data, ConstraintSourceData source, GameObject target)
     {
-        var lookAt = ConverterComponentHelper.EnsureOn(ref LookAt, target).Data;
+        var wrapper = ConverterComponentHelper.EnsureOn(ref LookAt, target);
+        wrapper.Members = new List<string> { "Target", "Up", "RotationOffset" };
+
+        var lookAt = wrapper.Data;
 
         lookAt.persistent = true;
         lookAt.Enabled = true;
         lookAt.Target = source.Source.GetSlot();
-        lookAt.TargetPoint = Vector3.zero;
         lookAt.Up = data.WorldUp;
 
         var offset = Quaternion.Euler(data.RotationOffset);
@@ -196,7 +201,10 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
 
     void SetupScale(ConstraintData data, ConstraintSourceData source, GameObject target)
     {
-        var scale = ConverterComponentHelper.EnsureOn(ref CopyScale, target).Data;
+        var wrapper = ConverterComponentHelper.EnsureOn(ref CopyScale, target);
+        wrapper.Members = new List<string> { "Source", "NonUniform" };
+
+        var scale = wrapper.Data;
 
         scale.persistent = true;
         scale.Enabled = true;

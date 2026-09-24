@@ -81,6 +81,7 @@ If the [VRChat SDK](https://creators.vrchat.com/sdk/) and/or [VRCFury](https://v
 | Source | Resonite result |
 |---|---|
 | VRC Avatar Descriptor | Adds `ResoniteBipedAvatarDescriptor` (if missing), with the viewpoint at VRChat's view position |
+| VRC Avatar Descriptor visemes | `VisemeAnalyzer` + `DirectVisemeDriver` driving the viseme (or jaw flap) blendshapes from the user's voice |
 | VRC PhysBone | `DynamicBoneChain` (simulation parameters are mapped heuristically, expect some tweaking) |
 | VRC PhysBone Collider | `DynamicBoneSphereCollider` (capsules are approximated with spheres, planes are unsupported) |
 | VRC / Unity Parent Constraint | `VirtualParent` |
@@ -88,9 +89,14 @@ If the [VRChat SDK](https://creators.vrchat.com/sdk/) and/or [VRCFury](https://v
 | VRC / Unity Scale Constraint | `CopyGlobalScale` |
 | VRC Spatial Audio Source | Adjusts the falloff distances of the converted `AudioOutput` |
 | VRCFury Armature Link / Bone Constraint | Prop/clothing bones are linked to avatar bones with `VirtualParent` |
+| VRCFury Toggle | Context menu toggle under "Avatar Toggles" (object on/off and blendshape actions) |
+| VRCFury Blend Shape Link | `ValueCopy<float>` from the base mesh blendshapes to the linked ones |
+| VRCFury Global Collider | Dynamic bone colliders added to all PhysBones on the avatar that allow collision |
 | VRCFury Delete During Upload | The object is made inactive |
 
-Position and Rotation constraints, multi-source constraints (only the highest weight source is used), and VRCFury features relying on VRChat's animator/menus (toggles, full controllers...) aren't converted yet - they're reported in the console.
+Not converted yet (reported in the console): Position and Rotation constraints, multiple constraint sources (only the highest weight source is used), contacts, stations, head chop, and VRCFury features relying on VRChat's animator (full controllers, gestures, toggle actions other than objects/blendshapes). Eye look and blinking are handled by Resonite's avatar creator ("Setup Eyes" on the Resonite descriptor).
+
+Helper objects the converters generate (named `[Resonite] ...`) are not saved with the scene - they're recreated on every conversion.
 
 ## What if something doesn't convert properly?
 If you run into content that doesn't convert at all or has conversion problems, best way is to make sure it's reported!
