@@ -548,7 +548,16 @@ public class SceneConverter : IConversionContext
         else
             data.Tag.Value = transform.tag;
 
-        data.IsActive.Value = transform.gameObject.activeSelf;
+        data.IsActive.Value = transform.gameObject.activeSelf && !IsForcedInactive(transform);
+    }
+
+    static bool IsForcedInactive(Transform transform)
+    {
+        foreach (var o in transform.GetComponents<ISlotActiveOverride>())
+            if (o.ForceSlotInactive)
+                return true;
+
+        return false;
     }
 
     void ConvertComponents(Transform transform, List<DataModelOperation> messages)
