@@ -32,14 +32,18 @@ public static class AvatarToggleBuilder
     }
 
     /// <summary>
-    /// Makes sure the item object exists under the menu. It's recreated if the menu has changed.
+    /// Makes sure the item object exists under the menu. It's recreated if the menu or the kind of the item has changed,
+    /// so no components from a different kind of item remain.
     /// </summary>
-    public static GameObject EnsureItem(ref GameObject item, GameObject menu, string label)
+    /// <param name="kind">Kind of the item, e.g. "Toggle" or "Option"</param>
+    public static GameObject EnsureItem(ref GameObject item, GameObject menu, string label, string kind = "Toggle")
     {
-        if (item == null || item.transform.parent != menu.transform)
+        var name = $"[Resonite] {kind}: {label}";
+
+        if (item == null || item.transform.parent != menu.transform || item.name != name)
         {
             GeneratedObjectHelper.DestroyWithEmptyParents(ref item);
-            item = GeneratedObjectHelper.Create(menu.transform, "[Resonite] " + label);
+            item = GeneratedObjectHelper.Create(menu.transform, name);
         }
 
         SetupItem(item, label);
@@ -50,7 +54,8 @@ public static class AvatarToggleBuilder
     /// <summary>
     /// Builds an on/off toggle, which sets the properties to the values of the on or off state
     /// </summary>
-    public static void BuildToggle(GameObject item, bool defaultOn, ToggleState on, ToggleState off, IConversionContext context)
+    /// <returns>The toggle's state, which other items can toggle too (see <see cref="BuildToggleLink"/>)</returns>
+    public static FrooxEngine.IField<bool> BuildToggle(GameObject item, bool defaultOn, ToggleState on, ToggleState off, IConversionContext context)
     {
         // The toggle state, which the menu button flips. It drives the state of all the individual properties.
         var stateDriver = ConverterComponentHelper.GetOrAdd<ValueMultiDriverBoolWrapper>(item).Data;
@@ -94,6 +99,17 @@ public static class AvatarToggleBuilder
             target.ResolveField(context, field => driver.TargetField = field);
             stateDriver.Drives.Add(driver.State_Element.Member);
         }
+
+        return stateDriver.Value_Element.Member;
+    }
+
+    /// <summary>
+    /// Builds an item that flips the state of an existing toggle, e.g. when the same toggle is in multiple menus
+    /// </summary>
+    public static void BuildToggleLink(GameObject item, FrooxEngine.IField<bool> toggleState)
+    {
+        var button = ConverterComponentHelper.GetOrAdd<FrooxEngine.ButtonToggleWrapper>(item).Data;
+        button.TargetValue = toggleState;
     }
 
     /// <summary>

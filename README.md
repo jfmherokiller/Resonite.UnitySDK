@@ -83,7 +83,7 @@ Set up the Resonite avatar with the Avatar Setup Wizard as usual. When it finds 
 | Source | Resonite result |
 |---|---|
 | VRC Avatar Descriptor visemes | `VisemeAnalyzer` + `DirectVisemeDriver` driving the viseme (or jaw flap) blendshapes from the user's voice |
-| VRC Expression Menu toggles | Context menu toggles under "Avatar Toggles", following the submenus. What each toggle does is read from the FX controller: object on/off, renderer enabled and blendshapes. Int parameters with multiple options become selectors (`ValueMultiplexer`). |
+| VRC Expression Menu toggles | Context menu toggles under "Avatar Toggles", following the submenus (including submenus used in multiple places; menus linking back to their parents aren't followed into a loop). What each toggle does is read from the FX controller: object on/off, renderer enabled and blendshapes. Int parameters with multiple options become selectors (`ValueMultiplexer`). A toggle appearing in multiple places gets an item in each. |
 | VRC PhysBone | `DynamicBoneChain` (simulation parameters are mapped heuristically, expect some tweaking) |
 | VRC PhysBone Collider | `DynamicBoneSphereCollider` (capsules are approximated with spheres, planes are unsupported) |
 | Dynamic Bone (legacy asset) | `DynamicBoneChain` (parameters mapped heuristically; freeze axis and distribution curves other than radius are ignored) |
@@ -95,6 +95,7 @@ Set up the Resonite avatar with the Avatar Setup Wizard as usual. When it finds 
 | VRC Spatial Audio Source | Adjusts the falloff distances of the converted `AudioOutput` |
 | VRCFury Armature Link / Bone Constraint | Prop/clothing bones are linked to avatar bones with `VirtualParent` |
 | VRCFury Toggle | Context menu toggle under "Avatar Toggles" (object on/off and blendshape actions) |
+| VRCFury Full Controller | The toggles in its menus are converted like the expression menu, placed at the menu prefix. Animated paths are resolved like VRCFury (relative to the component or root override, with binding rewrites). The rest of the controller isn't converted. |
 | VRCFury Blend Shape Link | `ValueCopy<float>` from the base mesh blendshapes to the linked ones |
 | VRCFury Global Collider | Dynamic bone colliders added to all PhysBones on the avatar that allow collision |
 | VRCFury Delete During Upload | The object is made inactive |
@@ -103,7 +104,7 @@ Not converted yet (reported in the console):
 - Constraints that only affect some axes, are frozen to world, or blend multiple sources / partial weights for position & rotation (e.g. twist bones). Parent, aim, look at and scale constraints use the source with the highest weight at full weight.
 - Contacts, stations and head chop
 - Expression menu buttons and puppets, and toggle animations other than object on/off, renderer enabled and blendshapes (e.g. material swaps, blend trees). Each property can only be driven by one toggle in Resonite - if multiple toggles animate the same property, only the first one controls it.
-- VRCFury features relying on VRChat's animator (full controllers, gestures, toggle actions other than objects/blendshapes)
+- VRCFury features relying on VRChat's animator beyond menu toggles (gestures, full controller layers not driven by the menu, toggle actions other than objects/blendshapes)
 
 Eye look and blinking are handled by Resonite's avatar creator ("Eye Setup" in the wizard).
 

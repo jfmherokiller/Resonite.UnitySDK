@@ -44,9 +44,24 @@ public static class AnimatorToggleAnalyzer
     }
 
     /// <summary>
+    /// Collects the clips that play in any of the controllers when the parameter has the given value
+    /// </summary>
+    public static List<AnimationClip> FindClips(IEnumerable<RuntimeAnimatorController> controllers, string parameter, float value,
+        ICollection<string> unsupported) =>
+        controllers.SelectMany(c => FindClips(c, parameter, value, unsupported)).Distinct().ToList();
+
+    /// <summary>
     /// Reads the values the clips set (at their first keyframe) into the state. Paths are relative to the root.
     /// </summary>
-    public static void ReadClips(IEnumerable<AnimationClip> clips, Transform root, ToggleState state, ICollection<string> unsupported)
+    public static void ReadClips(IEnumerable<AnimationClip> clips, Transform root, ToggleState state, ICollection<string> unsupported) =>
+        ReadClips(clips, path => string.IsNullOrEmpty(path) ? root : root.Find(path), state, unsupported);
+
+    /// <summary>
+    /// Reads the values the clips set (at their first keyframe) into the state.
+    /// </summary>
+    /// <param name="resolvePath">Resolves the animated path to a transform, or null if it doesn't exist</param>
+    public static void ReadClips(IEnumerable<AnimationClip> clips, Func<string, Transform> resolvePath, ToggleState state,
+        ICollection<string> unsupported)
     {
         foreach (var clip in clips)
         {
@@ -58,7 +73,7 @@ public static class AnimatorToggleAnalyzer
                     continue;
 
                 var value = curve.keys[0].value;
-                var target = string.IsNullOrEmpty(binding.path) ? root : root.Find(binding.path);
+                var target = resolvePath(binding.path);
 
                 if (target == null)
                     continue;
