@@ -72,8 +72,10 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
             GeneratedObjectHelper.Destroy(ref Visemes);
 
 #if UNITY_EDITOR
-        if (ConvertExpressionMenu)
-            VRCExpressionMenuToggles.Apply(target, MenuItems, MenuSelectors, context, _report);
+        var menu = ConvertExpressionMenu ? VRCExpressionMenuToggles.FromDescriptor(target) : null;
+
+        if (menu != null)
+            VRCExpressionMenuToggles.Apply(target, new[] { menu }, target.transform, MenuItems, MenuSelectors, context, _report);
         else
             VRCExpressionMenuToggles.Clear(MenuItems, MenuSelectors);
 #endif

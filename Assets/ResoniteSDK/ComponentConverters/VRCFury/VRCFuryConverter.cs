@@ -14,6 +14,8 @@ using UnityEngine;
 /// - Delete During Upload: the object is made inactive in Resonite.
 /// - Blend Shape Link: linked blendshapes are driven from the base mesh (see <see cref="VRCFuryBlendShapeLink"/>).
 /// - Toggle: converted into context menu toggles (see <see cref="VRCFuryToggle"/>).
+/// - Full Controller: the toggles in its menus are converted like the avatar's expression menu
+///   (see <see cref="VRCFuryFullController"/>). The rest of the controller isn't converted.
 ///
 /// Other features (full controllers, gestures, menus...) rely on VRChat's animator and menu systems and are reported.
 /// All VRCFury types are internal, so the data is read through reflection.
@@ -26,6 +28,8 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
     // Generated helper objects (not saved with the scene)
     public GameObject BlendShapeLinkObject;
     public List<GameObject> ToggleObjects = new List<GameObject>();
+    public List<GameObject> MenuItems = new List<GameObject>();
+    public List<GameObject> MenuSelectors = new List<GameObject>();
 
     readonly ConversionReporter _report = new ConversionReporter();
 
@@ -45,6 +49,7 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
         var links = new List<LinkRequest>();
         var blendShapeLinks = new List<object>();
         var toggles = new List<object>();
+        var fullControllers = new List<object>();
 
         foreach (var feature in GetFeatures(target))
         {
@@ -70,6 +75,10 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
                     toggles.Add(feature);
                     break;
 
+                case "FullController":
+                    fullControllers.Add(feature);
+                    break;
+
                 default:
                     _report.Info(feature.GetType().Name, $"VRCFury feature {feature.GetType().Name} on {target.name} is not " +
                         $"converted to Resonite.", target);
@@ -81,6 +90,14 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
 
         VRCFuryBlendShapeLink.Apply(target, blendShapeLinks, ref BlendShapeLinkObject, context);
         ApplyToggles(target, toggles, context);
+
+#if UNITY_EDITOR
+        // Only the menu toggles of full controllers are converted, the rest of the controller isn't
+        var menus = fullControllers.Select(f => VRCFuryFullController.CreateSource(target, f)).ToList();
+
+        VRCExpressionMenuToggles.Apply(target, menus, VRChatTypes.FindAvatarRoot(target.transform), MenuItems, MenuSelectors,
+            context, _report);
+#endif
     }
 
     void ApplyToggles(Component target, List<object> toggles, IConversionContext context)
@@ -362,5 +379,9 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
             }
 
         ToggleObjects?.Clear();
+
+#if UNITY_EDITOR
+        VRCExpressionMenuToggles.Clear(MenuItems, MenuSelectors);
+#endif
     }
 }

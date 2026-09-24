@@ -63,7 +63,7 @@ public static class VRCFuryToggle
             return;
         }
 
-        var segments = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+        var segments = VRCFuryTypes.SplitMenuPath(path);
         var menu = AvatarToggleBuilder.EnsureMenu(avatarRoot, segments.Take(Math.Max(0, segments.Length - 1)));
         var label = segments.Length > 0 ? segments[segments.Length - 1] : path;
 
