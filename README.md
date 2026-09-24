@@ -83,6 +83,7 @@ Set up the Resonite avatar with the Avatar Setup Wizard as usual. When it finds 
 | Source | Resonite result |
 |---|---|
 | VRC Avatar Descriptor visemes | `VisemeAnalyzer` + `DirectVisemeDriver` driving the viseme (or jaw flap) blendshapes from the user's voice |
+| VRC Expression Menu toggles | Context menu toggles under "Avatar Toggles", following the submenus. What each toggle does is read from the FX controller: object on/off, renderer enabled and blendshapes. Int parameters with multiple options become selectors (`ValueMultiplexer`). |
 | VRC PhysBone | `DynamicBoneChain` (simulation parameters are mapped heuristically, expect some tweaking) |
 | VRC PhysBone Collider | `DynamicBoneSphereCollider` (capsules are approximated with spheres, planes are unsupported) |
 | Dynamic Bone (legacy asset) | `DynamicBoneChain` (parameters mapped heuristically; freeze axis and distribution curves other than radius are ignored) |
@@ -101,6 +102,7 @@ Set up the Resonite avatar with the Avatar Setup Wizard as usual. When it finds 
 Not converted yet (reported in the console):
 - Constraints that only affect some axes, are frozen to world, or blend multiple sources / partial weights for position & rotation (e.g. twist bones). Parent, aim, look at and scale constraints use the source with the highest weight at full weight.
 - Contacts, stations and head chop
+- Expression menu buttons and puppets, and toggle animations other than object on/off, renderer enabled and blendshapes (e.g. material swaps, blend trees). Each property can only be driven by one toggle in Resonite - if multiple toggles animate the same property, only the first one controls it.
 - VRCFury features relying on VRChat's animator (full controllers, gestures, toggle actions other than objects/blendshapes)
 
 Eye look and blinking are handled by Resonite's avatar creator ("Eye Setup" in the wizard).

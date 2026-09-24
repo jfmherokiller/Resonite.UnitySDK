@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Converts the VRChat avatar descriptor's lip sync: viseme blendshapes (or jaw flap blendshape) are driven by
-/// Resonite's viseme analyzer from the voice of the user wearing the avatar.
+/// Converts the VRChat avatar descriptor:
+/// - Lip sync: viseme blendshapes (or jaw flap blendshape) are driven by Resonite's viseme analyzer from the voice
+///   of the user wearing the avatar.
+/// - Expression menu: toggles are converted into Resonite context menu toggles (see <see cref="VRCExpressionMenuToggles"/>)
 ///
 /// The Resonite avatar itself is set up with the Avatar Setup Wizard, which uses the VRChat view position
 /// when it finds this descriptor. Eye look and blinking are handled by Resonite's avatar creator ("Eye Setup").
@@ -46,7 +48,14 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
     [Tooltip("Drive the viseme blendshapes from the voice in Resonite. Disable if you set up visemes differently.")]
     public bool ConvertVisemes = true;
 
+    [Tooltip("Convert the expression menu toggles into Resonite context menu toggles.")]
+    public bool ConvertExpressionMenu = true;
+
     public GameObject Visemes;
+    public List<GameObject> MenuItems = new List<GameObject>();
+    public List<GameObject> MenuSelectors = new List<GameObject>();
+
+    readonly ConversionReporter _report = new ConversionReporter();
 
     protected override void Initialize(Component target)
     {
@@ -61,6 +70,13 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
             SetupVisemes(target, context);
         else
             GeneratedObjectHelper.Destroy(ref Visemes);
+
+#if UNITY_EDITOR
+        if (ConvertExpressionMenu)
+            VRCExpressionMenuToggles.Apply(target, MenuItems, MenuSelectors, context, _report);
+        else
+            VRCExpressionMenuToggles.Clear(MenuItems, MenuSelectors);
+#endif
     }
 
     void SetupVisemes(Component target, IConversionContext context)
@@ -157,5 +173,12 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
         return null;
     }
 
-    protected override void Cleanup() => GeneratedObjectHelper.Destroy(ref Visemes);
+    protected override void Cleanup()
+    {
+        GeneratedObjectHelper.Destroy(ref Visemes);
+
+#if UNITY_EDITOR
+        VRCExpressionMenuToggles.Clear(MenuItems, MenuSelectors);
+#endif
+    }
 }
