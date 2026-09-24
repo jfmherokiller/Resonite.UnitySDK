@@ -9,29 +9,24 @@ using UnityEngine;
 /// a reasonably similar feel. They'll likely need some tweaking in Resonite for best results.
 /// </summary>
 [ConvertsComponentType(VRChatTypes.PhysBone)]
-public class VRCPhysBoneConverter : ResoniteSingleComponentConverter<Component, PartialDynamicBoneChainWrapper>
+public class VRCPhysBoneConverter : ResoniteSingleComponentConverter<Component, FrooxEngine.DynamicBoneChainWrapper>
 {
-    // VRChat's AdvancedBool enum: False, True, Other
-    const int ADVANCED_BOOL_FALSE = 0;
-
-    // VRChat's IntegrationType enum: Simplified, Advanced
-    const int INTEGRATION_ADVANCED = 1;
-
     HashSet<Component> _pendingColliders = new HashSet<Component>();
 
     protected override void UpdateConversion(Component target, IConversionContext context)
     {
         var chain = Binding.Data;
 
-        // Only these are sent, everything else is left at Resonite's defaults
-        Binding.Members = new List<string>
-        {
+        // Only these are sent, everything else is left at Resonite's defaults.
+        // Bones have internal drives for the bone transforms, which must not be overwritten.
+        var filter = ResoniteMemberFilter.Set(Binding,
             "Inertia", "Damping", "Elasticity", "Stiffness", "Gravity", "UseUserGravityDirection",
             "SimulateTerminalBones", "IsGrabbable", "DynamicPlayerCollision", "MaxStretchRatio",
-            "BaseBoneRadius", "Bones", "StaticColliders",
-        };
+            "BaseBoneRadius", "Bones", "StaticColliders");
 
-        chain.persistent = true;
+        filter.StripInternalFromLists.Add("Bones");
+        filter.StripFromListElements.Add("GrabOverride");
+
         chain.Enabled = !(target is Behaviour behaviour) || behaviour.enabled;
 
         var root = ReflectionAccessor.GetTransform(target, "rootTransform");
@@ -56,7 +51,7 @@ public class VRCPhysBoneConverter : ResoniteSingleComponentConverter<Component, 
         var gravity = Mathf.Clamp(ReflectionAccessor.Get(target, "gravity", 0f), -1, 1);
         var immobile = Mathf.Clamp01(ReflectionAccessor.Get(target, "immobile", 0f));
 
-        var advanced = ReflectionAccessor.GetInt(target, "integrationType") == INTEGRATION_ADVANCED;
+        var advanced = ReflectionAccessor.GetEnumName(target, "integrationType") == "Advanced";
 
         // HEURISTICS! These are not physically equivalent, but give similar behavior in common cases.
         // Pull is how strongly the bones return to their rest pose
@@ -77,8 +72,9 @@ public class VRCPhysBoneConverter : ResoniteSingleComponentConverter<Component, 
         // PhysBones simulate the tip of the last bone when there's an endpoint position
         chain.SimulateTerminalBones = ReflectionAccessor.Get(target, "endpointPosition", Vector3.zero) != Vector3.zero;
 
-        chain.IsGrabbable = ReflectionAccessor.GetInt(target, "allowGrabbing", 1) != ADVANCED_BOOL_FALSE;
-        chain.DynamicPlayerCollision = ReflectionAccessor.GetInt(target, "allowCollision", 1) != ADVANCED_BOOL_FALSE;
+        // VRChat's AdvancedBool is False, True or Other (per-user settings), which we treat as enabled
+        chain.IsGrabbable = ReflectionAccessor.GetEnumName(target, "allowGrabbing") != "False";
+        chain.DynamicPlayerCollision = ReflectionAccessor.GetEnumName(target, "allowCollision") != "False";
 
         var maxStretch = ReflectionAccessor.Get(target, "maxStretch", 0f);
         chain.MaxStretchRatio = 1f + Mathf.Max(0, maxStretch);

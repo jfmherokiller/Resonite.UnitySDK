@@ -33,14 +33,16 @@ public static class GeneratedObjectHelper
         return obj;
     }
 
-    public static T EnsureComponent<T>(GameObject obj) where T : Component
+    /// <summary>
+    /// Only assigns the values when they changed, so we don't generate needless change events in realtime mode
+    /// </summary>
+    public static void SetLocalPose(Transform transform, Vector3 position, Quaternion rotation)
     {
-        var component = obj.GetComponent<T>();
+        if (transform.localPosition != position)
+            transform.localPosition = position;
 
-        if (component == null)
-            component = obj.AddComponent<T>();
-
-        return component;
+        if (transform.localRotation != rotation)
+            transform.localRotation = rotation;
     }
 
     public static void Destroy(ref GameObject obj)
@@ -49,5 +51,23 @@ public static class GeneratedObjectHelper
             Object.DestroyImmediate(obj);
 
         obj = null;
+    }
+
+    /// <summary>
+    /// Destroys the generated object and any generated parents that are left empty after that
+    /// (e.g. shared menu containers)
+    /// </summary>
+    public static void DestroyWithEmptyParents(ref GameObject obj)
+    {
+        var parent = obj != null ? obj.transform.parent : null;
+
+        Destroy(ref obj);
+
+        while (parent != null && IsGenerated(parent) && parent.childCount == 0)
+        {
+            var next = parent.parent;
+            Object.DestroyImmediate(parent.gameObject);
+            parent = next;
+        }
     }
 }

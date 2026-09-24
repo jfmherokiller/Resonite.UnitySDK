@@ -50,8 +50,6 @@ public static class VRCFuryBlendShapeLink
             var copy = copies[i].Data;
             var (baseRenderer, link) = links[i];
 
-            copy.persistent = true;
-            copy.Enabled = true;
             copy.WriteBack = false;
 
             BlendShapeFieldHelper.RunWithField(context, baseRenderer, link.BaseIndex, field => copy.Source = field);

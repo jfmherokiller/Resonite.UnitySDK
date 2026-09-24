@@ -43,7 +43,7 @@ public class DynamicBoneColliderBuilder
         if (Container.transform.parent != root)
             Container.transform.SetParent(root, false);
 
-        SetLocal(Container.transform, position, rotation);
+        GeneratedObjectHelper.SetLocalPose(Container.transform, position, rotation);
 
         Spheres.RemoveAll(s => s == null);
 
@@ -61,11 +61,10 @@ public class DynamicBoneColliderBuilder
 
         for (int i = 0; i < offsets.Count; i++)
         {
-            SetLocal(Spheres[i].transform, new Vector3(0, offsets[i], 0), Quaternion.identity);
+            GeneratedObjectHelper.SetLocalPose(Spheres[i].transform, new Vector3(0, offsets[i], 0), Quaternion.identity);
 
             var data = Spheres[i].Data;
 
-            data.persistent = true;
             data.Enabled = enabled;
             data.Radius = radius;
         }
@@ -76,16 +75,6 @@ public class DynamicBoneColliderBuilder
         foreach (var sphere in Spheres)
             if (sphere != null)
                 yield return sphere.Data;
-    }
-
-    // Only assign when changed, so we don't generate needless change events in realtime mode
-    static void SetLocal(Transform transform, Vector3 position, Quaternion rotation)
-    {
-        if (transform.localPosition != position)
-            transform.localPosition = position;
-
-        if (transform.localRotation != rotation)
-            transform.localRotation = rotation;
     }
 
     public void Clear()

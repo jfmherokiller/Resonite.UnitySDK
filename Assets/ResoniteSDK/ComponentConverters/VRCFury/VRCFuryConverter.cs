@@ -21,14 +21,13 @@ using UnityEngine;
 [ConvertsComponentType(VRCFuryTypes.VRCFury)]
 public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActiveOverride
 {
-    public List<PartialVirtualParentWrapper> Links = new List<PartialVirtualParentWrapper>();
+    public List<FrooxEngine.VirtualParentWrapper> Links = new List<FrooxEngine.VirtualParentWrapper>();
 
     // Generated helper objects (not saved with the scene)
     public GameObject BlendShapeLinkObject;
     public List<GameObject> ToggleObjects = new List<GameObject>();
 
-    [NonSerialized]
-    HashSet<string> _reported = new HashSet<string>();
+    readonly ConversionReporter _report = new ConversionReporter();
 
     // Evaluated on demand, so it's correct even when the slot is updated without the converter running
     public bool ForceSlotInactive => Target != null && GetFeatures(Target).Any(f => f.GetType().Name == "DeleteDuringUpload");
@@ -72,8 +71,8 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
                     break;
 
                 default:
-                    ReportOnce(feature.GetType().Name, $"VRCFury feature {feature.GetType().Name} on {target.name} is not " +
-                        $"converted to Resonite.");
+                    _report.Info(feature.GetType().Name, $"VRCFury feature {feature.GetType().Name} on {target.name} is not " +
+                        $"converted to Resonite.", target);
                     break;
             }
         }
@@ -95,7 +94,7 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
         for (int i = 0; i < toggles.Count; i++)
         {
             var toggleObject = ToggleObjects[i];
-            VRCFuryToggle.Apply(target, toggles[i], ref toggleObject, context, ReportOnce);
+            VRCFuryToggle.Apply(target, toggles[i], ref toggleObject, context, _report);
             ToggleObjects[i] = toggleObject;
         }
 
@@ -103,7 +102,7 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
         for (int i = ToggleObjects.Count - 1; i >= toggles.Count; i--)
         {
             var toggleObject = ToggleObjects[i];
-            GeneratedObjectHelper.Destroy(ref toggleObject);
+            GeneratedObjectHelper.DestroyWithEmptyParents(ref toggleObject);
             ToggleObjects.RemoveAt(i);
         }
     }
@@ -131,7 +130,7 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
 
         if (prop == null)
         {
-            ReportOnce("nopropbone", $"VRCFury Armature Link on {target.name} has no prop bone set.");
+            _report.Warning("nopropbone", $"VRCFury Armature Link on {target.name} has no prop bone set.", target);
             return;
         }
 
@@ -148,7 +147,7 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
 
         if (linkTarget == null)
         {
-            ReportOnce("notarget", $"VRCFury Armature Link on {target.name} couldn't find the bone to link to on the avatar.");
+            _report.Warning("notarget", $"VRCFury Armature Link on {target.name} couldn't find the bone to link to on the avatar.", target);
             return;
         }
 
@@ -326,18 +325,16 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
 
             if (wrapper == null)
             {
-                wrapper = request.Prop.gameObject.AddComponent<PartialVirtualParentWrapper>();
+                wrapper = request.Prop.gameObject.AddComponent<FrooxEngine.VirtualParentWrapper>();
                 Links.Add(wrapper);
             }
 
-            wrapper.Members = new List<string> { "OverrideParent", "LocalPosition", "LocalRotation", "LocalScale" };
+            ResoniteMemberFilter.Set(wrapper, "OverrideParent", "LocalPosition", "LocalRotation", "LocalScale");
 
             var parent = wrapper.Data;
             var prop = request.Prop;
             var target = request.Target;
 
-            parent.persistent = true;
-            parent.Enabled = true;
             parent.OverrideParent = target.GetSlot();
 
             // Unless aligned, keep the prop where it currently is relative to the bone it's linked to
@@ -345,15 +342,6 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
             parent.LocalRotation = request.AlignRotation ? Quaternion.identity : Quaternion.Inverse(target.rotation) * prop.rotation;
             parent.LocalScale = ConverterComponentHelper.SafeDivide(prop.lossyScale, target.lossyScale);
         }
-    }
-
-    void ReportOnce(string key, string message)
-    {
-        if (_reported == null)
-            _reported = new HashSet<string>();
-
-        if (_reported.Add(key))
-            Debug.Log(message, Target);
     }
 
     protected override void Cleanup()
@@ -370,7 +358,7 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
             for (int i = 0; i < ToggleObjects.Count; i++)
             {
                 var toggleObject = ToggleObjects[i];
-                GeneratedObjectHelper.Destroy(ref toggleObject);
+                GeneratedObjectHelper.DestroyWithEmptyParents(ref toggleObject);
             }
 
         ToggleObjects?.Clear();
