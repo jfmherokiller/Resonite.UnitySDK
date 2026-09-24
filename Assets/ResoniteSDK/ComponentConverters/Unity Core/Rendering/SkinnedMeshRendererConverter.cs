@@ -22,11 +22,7 @@ public static class SkinnedMeshRendererHelper
 
         for (int b = 0; b < blendshapeCount; b++)
         {
-            var endFrameWeight = mesh.GetBlendShapeFrameWeight(b, mesh.GetBlendShapeFrameCount(b) - 1);
-
-            // Resonite uses normalized blendshape frame weight range between 0...1
-            // We need to scale the weight to the actual frame of the mesh, otherwise the strength will be wrong
-            var weight = unity.GetBlendShapeWeight(b) / endFrameWeight;
+            var weight = BlendShapeFieldHelper.GetNormalizedWeight(mesh, b, unity.GetBlendShapeWeight(b));
 
             if (resonite.BlendShapeWeights.Count == b)
                 resonite.BlendShapeWeights.Add(weight);

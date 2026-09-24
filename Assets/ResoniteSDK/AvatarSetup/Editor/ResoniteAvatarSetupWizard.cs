@@ -15,6 +15,7 @@ public class ResoniteAvatarSetupWizard : EditorWindow
     [SerializeField] Transform _rightFootOverride;
     [SerializeField] Transform _hipsOverride;
     [SerializeField] Vector3 _viewpointOffset;
+    [SerializeField] bool _useVRChatViewpoint = true;
     [SerializeField] Vector2 _scrollPosition;
     [SerializeField] bool _useGlobalOrientation;
     [SerializeField] bool _showOptionalRefs;
@@ -57,6 +58,7 @@ public class ResoniteAvatarSetupWizard : EditorWindow
         {
             DrawDetectedBonesSection(humanoidAnimator);
             DrawViewpointSection(avatarDescriptor);
+            DrawVRChatSection();
             DrawSetupOptionsSection();
 
             EditorGUILayout.Space(6);
@@ -307,6 +309,27 @@ public class ResoniteAvatarSetupWizard : EditorWindow
         EditorGUILayout.Space(4);
     }
 
+    void DrawVRChatSection()
+    {
+        var vrcDescriptor = FindVRChatDescriptor();
+
+        if (vrcDescriptor == null)
+            return;
+
+        EditorGUILayout.LabelField("VRChat Avatar", EditorStyles.boldLabel);
+        EditorGUILayout.HelpBox("VRChat avatar descriptor detected. PhysBones, constraints, visemes and VRCFury features " +
+            "are converted automatically when the scene is sent to Resonite.", MessageType.Info);
+
+        _useVRChatViewpoint = EditorGUILayout.Toggle(new GUIContent("Use VRChat View Position",
+            "Places the viewpoint at the view position from the VRChat avatar descriptor when the avatar is set up."),
+            _useVRChatViewpoint);
+
+        using (new EditorGUI.DisabledScope(true))
+            EditorGUILayout.Vector3Field("VRChat View Position", GetVRChatViewPosition(vrcDescriptor));
+
+        EditorGUILayout.Space(4);
+    }
+
     void DrawSetupOptionsSection()
     {
         EditorGUILayout.LabelField("Setup Options", EditorStyles.boldLabel);
@@ -522,11 +545,32 @@ public class ResoniteAvatarSetupWizard : EditorWindow
         avatarDescriptor.SetupVolumeMeter = _setupVolumeMeter;
 
         var referencesParent = avatarDescriptor.EnsureReferencesExist();
+
+        // The references of a new descriptor are generated when it's added. Register them, so the whole setup
+        // can be undone with Ctrl+Z (in addition to the Revert button)
+        if (isNewDescriptor && referencesParent != null)
+            Undo.RegisterCreatedObjectUndo(referencesParent.gameObject, "Create Avatar References");
+
         if (referencesParent != null)
             avatarDescriptor.CreateOptionalReferenceSlots(referencesParent, _useGlobalOrientation,
                 _leftFootOverride, _rightFootOverride, _hipsOverride);
 
         TrackCreatedReferenceHierarchy(setupTracker, avatarDescriptor);
+
+        // VRChat avatars already have the view position set by their creator, which is more reliable
+        // than the estimate from the eye bones. Only applied to new setups, so manual adjustments are kept.
+        var vrcDescriptor = FindVRChatDescriptor();
+
+        if (isNewDescriptor && _useVRChatViewpoint && vrcDescriptor != null && avatarDescriptor.ViewpointReference != null)
+        {
+            var viewPosition = GetVRChatViewPosition(vrcDescriptor);
+
+            if (viewPosition != Vector3.zero)
+            {
+                Undo.RecordObject(avatarDescriptor.ViewpointReference, "Apply VRChat View Position");
+                avatarDescriptor.ViewpointReference.position = _avatarRoot.transform.TransformPoint(viewPosition);
+            }
+        }
 
         if (avatarDescriptor.ViewpointReference != null && _viewpointOffset != Vector3.zero)
         {
@@ -612,6 +656,7 @@ public class ResoniteAvatarSetupWizard : EditorWindow
 
         // Reset the viewpoint offset, to prevent offset from previous avatar being applied
         _viewpointOffset = Vector3.zero;
+        _useVRChatViewpoint = true;
         _leftFootOverride = null;
         _rightFootOverride = null;
         _hipsOverride = null;
@@ -625,6 +670,19 @@ public class ResoniteAvatarSetupWizard : EditorWindow
             _setupVolumeMeter = existingDescriptor.SetupVolumeMeter;
         }
     }
+
+    Component FindVRChatDescriptor()
+    {
+        if (_avatarRoot == null)
+            return null;
+
+        // Looked up by name, so the VRChat SDK doesn't need to be installed
+        return _avatarRoot.GetComponents<Component>()
+            .FirstOrDefault(c => c != null && c.GetType().FullName == VRChatTypes.AvatarDescriptor);
+    }
+
+    static Vector3 GetVRChatViewPosition(Component vrcDescriptor) =>
+        ReflectionAccessor.Get(vrcDescriptor, "ViewPosition", Vector3.zero);
 
     bool RootDeviatesFromGlobal()
     {

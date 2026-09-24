@@ -16,10 +16,6 @@ public static class VRCFuryToggle
 {
     public const string MENU_ROOT_NAME = "[Resonite] Avatar Toggles";
 
-    // VRCFury's ObjectToggleAction.Mode enum
-    const int MODE_TURN_ON = 0;
-    const int MODE_TURN_OFF = 1;
-
     struct ObjectAction
     {
         public Transform Object;
@@ -34,7 +30,7 @@ public static class VRCFuryToggle
     }
 
     public static void Apply(Component target, object toggle, ref GameObject toggleObject, IConversionContext context,
-        Action<string, string> report)
+        ConversionReporter report)
     {
         var avatarRoot = VRChatTypes.FindAvatarRoot(target.transform);
         var path = ReflectionAccessor.Get(toggle, "name", "");
@@ -43,7 +39,7 @@ public static class VRCFuryToggle
             path = target.name;
 
         if (ReflectionAccessor.Get(toggle, "slider", false))
-            report("slider", $"VRCFury toggle {path} is a slider, which is converted as a simple on/off toggle.");
+            report.Warning("slider", $"VRCFury toggle {path} is a slider, which is converted as a simple on/off toggle.", target);
 
         var objects = new List<ObjectAction>();
         var blendShapes = new List<BlendShapeAction>();
@@ -63,12 +59,13 @@ public static class VRCFuryToggle
                     if (obj == null)
                         break;
 
-                    var mode = ReflectionAccessor.GetInt(action, "mode");
+                    // TurnOn, TurnOff or Toggle (flips the current state)
+                    var mode = ReflectionAccessor.GetEnumName(action, "mode", "TurnOn");
 
                     objects.Add(new ObjectAction()
                     {
                         Object = obj,
-                        OnState = mode == MODE_TURN_ON || (mode != MODE_TURN_OFF && !obj.gameObject.activeSelf),
+                        OnState = mode == "TurnOn" || (mode != "TurnOff" && !obj.gameObject.activeSelf),
                     });
                     break;
 
@@ -77,14 +74,14 @@ public static class VRCFuryToggle
                     break;
 
                 default:
-                    report(action.GetType().Name, $"VRCFury toggle {path} uses {action.GetType().Name}, which isn't converted.");
+                    report.Warning(action.GetType().Name, $"VRCFury toggle {path} uses {action.GetType().Name}, which isn't converted.", target);
                     break;
             }
         }
 
         if (objects.Count == 0 && blendShapes.Count == 0)
         {
-            GeneratedObjectHelper.Destroy(ref toggleObject);
+            GeneratedObjectHelper.DestroyWithEmptyParents(ref toggleObject);
             return;
         }
 
@@ -106,15 +103,11 @@ public static class VRCFuryToggle
         SetupItem(toggleObject, label);
 
         // The toggle state, which the menu button flips. It drives the state of all the individual actions.
-        var stateDriver = GeneratedObjectHelper.EnsureComponent<ValueMultiDriverBoolWrapper>(toggleObject).Data;
-        stateDriver.persistent = true;
-        stateDriver.Enabled = true;
+        var stateDriver = ConverterComponentHelper.GetOrAdd<ValueMultiDriverBoolWrapper>(toggleObject).Data;
         stateDriver.Value = ReflectionAccessor.Get(toggle, "defaultOn", false);
         stateDriver.Drives.Clear();
 
-        var button = GeneratedObjectHelper.EnsureComponent<FrooxEngine.ButtonToggleWrapper>(toggleObject).Data;
-        button.persistent = true;
-        button.Enabled = true;
+        var button = ConverterComponentHelper.GetOrAdd<FrooxEngine.ButtonToggleWrapper>(toggleObject).Data;
         button.TargetValue = stateDriver.Value_Element.Member;
 
         var objectDrivers = EnsureCount<BooleanValueDriverBoolWrapper>(toggleObject, objects.Count);
@@ -123,8 +116,6 @@ public static class VRCFuryToggle
         {
             var driver = objectDrivers[i].Data;
 
-            driver.persistent = true;
-            driver.Enabled = true;
             driver.TrueValue = objects[i].OnState;
             driver.FalseValue = objects[i].Object.gameObject.activeSelf;
             driver.TargetField = new SlotActiveField(objects[i].Object);
@@ -139,10 +130,8 @@ public static class VRCFuryToggle
             var driver = blendShapeDrivers[i].Data;
             var action = blendShapes[i];
 
-            driver.persistent = true;
-            driver.Enabled = true;
             driver.TrueValue = action.OnWeight;
-            driver.FalseValue = BlendShapeFieldHelper.GetNormalizedWeight(action.Renderer, action.Index,
+            driver.FalseValue = BlendShapeFieldHelper.GetNormalizedWeight(action.Renderer.sharedMesh, action.Index,
                 action.Renderer.GetBlendShapeWeight(action.Index));
 
             BlendShapeFieldHelper.RunWithField(context, action.Renderer, action.Index, field => driver.TargetField = field);
@@ -184,7 +173,7 @@ public static class VRCFuryToggle
             {
                 Renderer = renderer,
                 Index = index,
-                OnWeight = BlendShapeFieldHelper.GetNormalizedWeight(renderer, index, value),
+                OnWeight = BlendShapeFieldHelper.GetNormalizedWeight(renderer.sharedMesh, index, value),
             });
         }
     }
@@ -195,18 +184,14 @@ public static class VRCFuryToggle
 
         SetupItem(menu, label);
 
-        var submenu = GeneratedObjectHelper.EnsureComponent<FrooxEngine.ContextMenuSubmenuWrapper>(menu).Data;
-        submenu.persistent = true;
-        submenu.Enabled = true;
+        var submenu = ConverterComponentHelper.GetOrAdd<FrooxEngine.ContextMenuSubmenuWrapper>(menu).Data;
         submenu.ItemsRoot = menu.GetSlot();
 
         if (isRoot)
         {
             // Registers the item in the root context menu of the user wearing the avatar
-            var root = GeneratedObjectHelper.EnsureComponent<FrooxEngine.RootContextMenuItemWrapper>(menu).Data;
-            root.persistent = true;
-            root.Enabled = true;
-            root.Item = menu.GetComponent<PartialContextMenuItemSourceWrapper>().Data;
+            var root = ConverterComponentHelper.GetOrAdd<FrooxEngine.RootContextMenuItemWrapper>(menu).Data;
+            root.Item = menu.GetComponent<FrooxEngine.ContextMenuItemSourceWrapper>().Data;
         }
 
         return menu;
@@ -214,11 +199,9 @@ public static class VRCFuryToggle
 
     static void SetupItem(GameObject obj, string label)
     {
-        var item = GeneratedObjectHelper.EnsureComponent<PartialContextMenuItemSourceWrapper>(obj);
-        item.Members = new List<string> { "Label" };
+        var item = ConverterComponentHelper.GetOrAdd<FrooxEngine.ContextMenuItemSourceWrapper>(obj);
+        ResoniteMemberFilter.Set(item, "Label");
 
-        item.Data.persistent = true;
-        item.Data.Enabled = true;
         item.Data.Label = label;
     }
 

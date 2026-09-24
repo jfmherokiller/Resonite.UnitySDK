@@ -65,8 +65,8 @@ public class SceneConverter : IConversionContext
             return GetTransformSlotId(slot.Transform);
 
         // Same for the fields of the slots
-        if (o is SlotActiveField activeField)
-            return GetLinkSlot(activeField.Transform).IsActive.ID;
+        if (o is SlotFieldReference slotField)
+            return slotField.GetFieldId(GetLinkSlot(slotField.Transform));
 
         return _elementToId[o];
     }
@@ -86,13 +86,13 @@ public class SceneConverter : IConversionContext
             return GetTransformSlotId(slot.Transform);
         }
 
-        if (o is SlotActiveField activeField)
+        if (o is SlotFieldReference slotField)
         {
-            if (activeField.Transform == null)
-                throw new Exception($"Slot active field's transform reference is null!");
+            if (slotField.Transform == null)
+                throw new Exception($"Slot field's transform reference is null!");
 
             allocated = false;
-            return GetLinkSlot(activeField.Transform).IsActive.ID;
+            return slotField.GetFieldId(GetLinkSlot(slotField.Transform));
         }
 
         if (!_elementToId.TryGetValue(o, out var id))
@@ -580,6 +580,9 @@ public class SceneConverter : IConversionContext
         foreach (var c in components)
         {
             var data = c.CollectData(this);
+
+            // Only send the members the converter assigned, if it limited them
+            ResoniteMemberFilter.Apply(c, data);
 
             if (_existingComponents.TryAdd(c, c.transform))
             {

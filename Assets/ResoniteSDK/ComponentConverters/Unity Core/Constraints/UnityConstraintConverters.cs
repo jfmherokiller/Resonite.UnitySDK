@@ -8,8 +8,9 @@ public class ParentConstraintConverter : ConstraintConverterBase<ParentConstrain
         var data = new ConstraintData()
         {
             Kind = ConstraintKind.Parent,
-            Active = target.constraintActive && target.enabled && target.weight > 0,
+            Active = target.constraintActive && target.enabled,
             Target = target.transform,
+            AllAxes = ConstraintData.IsAllAxes(target.translationAxis) && ConstraintData.IsAllAxes(target.rotationAxis),
         };
 
         for (int i = 0; i < target.sourceCount; i++)
@@ -19,11 +20,49 @@ public class ParentConstraintConverter : ConstraintConverterBase<ParentConstrain
             data.Sources.Add(new ConstraintSourceData()
             {
                 Source = source.sourceTransform,
-                Weight = source.weight,
+                Weight = source.weight * target.weight,
                 PositionOffset = target.GetTranslationOffset(i),
                 RotationOffset = target.GetRotationOffset(i),
             });
         }
+
+        return data;
+    }
+}
+
+public class PositionConstraintConverter : ConstraintConverterBase<PositionConstraint>
+{
+    protected override ConstraintData ReadConstraint(PositionConstraint target)
+    {
+        var data = new ConstraintData()
+        {
+            Kind = ConstraintKind.Position,
+            Active = target.constraintActive && target.enabled,
+            Target = target.transform,
+            AllAxes = ConstraintData.IsAllAxes(target.translationAxis),
+            PositionOffset = target.translationOffset,
+        };
+
+        ConstraintData.ReadSources(target, data);
+
+        return data;
+    }
+}
+
+public class RotationConstraintConverter : ConstraintConverterBase<RotationConstraint>
+{
+    protected override ConstraintData ReadConstraint(RotationConstraint target)
+    {
+        var data = new ConstraintData()
+        {
+            Kind = ConstraintKind.Rotation,
+            Active = target.constraintActive && target.enabled,
+            Target = target.transform,
+            AllAxes = ConstraintData.IsAllAxes(target.rotationAxis),
+            RotationOffset = target.rotationOffset,
+        };
+
+        ConstraintData.ReadSources(target, data);
 
         return data;
     }
@@ -36,8 +75,9 @@ public class AimConstraintConverter : ConstraintConverterBase<AimConstraint>
         var data = new ConstraintData()
         {
             Kind = ConstraintKind.Aim,
-            Active = target.constraintActive && target.enabled && target.weight > 0,
+            Active = target.constraintActive && target.enabled,
             Target = target.transform,
+            AllAxes = ConstraintData.IsAllAxes(target.rotationAxis),
             AimAxis = target.aimVector,
             UpAxis = target.upVector,
             RotationOffset = target.rotationOffset,
@@ -57,7 +97,7 @@ public class LookAtConstraintConverter : ConstraintConverterBase<LookAtConstrain
         var data = new ConstraintData()
         {
             Kind = ConstraintKind.LookAt,
-            Active = target.constraintActive && target.enabled && target.weight > 0,
+            Active = target.constraintActive && target.enabled,
             Target = target.transform,
             Roll = target.roll,
             RotationOffset = target.rotationOffset,
@@ -77,43 +117,10 @@ public class ScaleConstraintConverter : ConstraintConverterBase<ScaleConstraint>
         var data = new ConstraintData()
         {
             Kind = ConstraintKind.Scale,
-            Active = target.constraintActive && target.enabled && target.weight > 0,
+            Active = target.constraintActive && target.enabled,
             Target = target.transform,
+            AllAxes = ConstraintData.IsAllAxes(target.scalingAxis),
             ScaleOffset = target.scaleOffset,
-        };
-
-        ConstraintData.ReadSources(target, data);
-
-        return data;
-    }
-}
-
-public class PositionConstraintConverter : ConstraintConverterBase<PositionConstraint>
-{
-    protected override ConstraintData ReadConstraint(PositionConstraint target)
-    {
-        var data = new ConstraintData()
-        {
-            Kind = ConstraintKind.Position,
-            Active = target.constraintActive && target.enabled && target.weight > 0,
-            Target = target.transform,
-        };
-
-        ConstraintData.ReadSources(target, data);
-
-        return data;
-    }
-}
-
-public class RotationConstraintConverter : ConstraintConverterBase<RotationConstraint>
-{
-    protected override ConstraintData ReadConstraint(RotationConstraint target)
-    {
-        var data = new ConstraintData()
-        {
-            Kind = ConstraintKind.Rotation,
-            Active = target.constraintActive && target.enabled && target.weight > 0,
-            Target = target.transform,
         };
 
         ConstraintData.ReadSources(target, data);

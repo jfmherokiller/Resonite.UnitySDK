@@ -3,22 +3,16 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Converts the VRChat avatar descriptor:
-/// - If the avatar doesn't have <see cref="ResoniteBipedAvatarDescriptor"/> yet, it's added automatically with the
-///   viewpoint placed at the VRChat view position. Existing descriptors are never modified.
-/// - Viseme blendshapes (or jaw flap blendshape) are driven by Resonite's viseme analyzer from the user's voice.
+/// Converts the VRChat avatar descriptor's lip sync: viseme blendshapes (or jaw flap blendshape) are driven by
+/// Resonite's viseme analyzer from the voice of the user wearing the avatar.
 ///
-/// Eye look and blinking are left to Resonite's avatar creator (see "Setup Eyes" on the Resonite descriptor).
+/// The Resonite avatar itself is set up with the Avatar Setup Wizard, which uses the VRChat view position
+/// when it finds this descriptor. Eye look and blinking are handled by Resonite's avatar creator ("Eye Setup").
 /// </summary>
 [ConvertsComponentType(VRChatTypes.AvatarDescriptor)]
 public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component>
 {
     const string VISEMES_NAME = "[Resonite] Visemes";
-
-    // VRChat's LipSyncStyle enum
-    const int LIPSYNC_DEFAULT = 0;
-    const int LIPSYNC_JAW_FLAP_BLENDSHAPE = 2;
-    const int LIPSYNC_VISEME_BLENDSHAPE = 3;
 
     // Order of VRChat's VisemeBlendShapes array
     static readonly Action<FrooxEngine.DirectVisemeDriver, FrooxEngine.IField<float>>[] VISEME_SETTERS =
@@ -47,38 +41,18 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
     static readonly string[] VRC_VISEME_NAMES =
         { "sil", "pp", "ff", "th", "dd", "kk", "ch", "ss", "nn", "rr", "aa", "e", "ih", "oh", "ou" };
 
+    const int VISEME_AA = 10;
+
     [Tooltip("Drive the viseme blendshapes from the voice in Resonite. Disable if you set up visemes differently.")]
     public bool ConvertVisemes = true;
 
-    [NonSerialized]
-    GameObject _visemes;
+    public GameObject Visemes;
 
     protected override void Initialize(Component target)
     {
-        if (target.GetComponent<ResoniteBipedAvatarDescriptor>() != null)
-            return;
-
-        var animator = target.GetComponent<Animator>();
-
-        if (animator == null || animator.avatar == null || !animator.avatar.isHuman)
-        {
-            Debug.LogWarning($"VRChat avatar {target.name} doesn't have a humanoid Animator. " +
-                $"Resonite avatar can't be set up automatically.", target);
-            return;
-        }
-
-        // This will generate the references and position them based on the humanoid rig
-        var descriptor = target.gameObject.AddComponent<ResoniteBipedAvatarDescriptor>();
-        descriptor.EnsureReferencesExist();
-
-        // VRChat's view position is more reliable than the one estimated from the eye bones, since the creator set it
-        var viewPosition = ReflectionAccessor.Get(target, "ViewPosition", Vector3.zero);
-
-        if (viewPosition != Vector3.zero && descriptor.ViewpointReference != null)
-            descriptor.ViewpointReference.position = target.transform.TransformPoint(viewPosition);
-
-        Debug.Log($"Added ResoniteBipedAvatarDescriptor to VRChat avatar {target.name}. " +
-            $"Check the generated references before saving the avatar.", target);
+        if (target.GetComponent<ResoniteBipedAvatarDescriptor>() == null)
+            Debug.Log($"VRChat avatar {target.name} doesn't have Resonite avatar setup yet. Use Resonite SDK > Avatar Setup Wizard " +
+                $"to set it up - it will use the VRChat view position.", target);
     }
 
     protected override void UpdateConversion(Component target, IConversionContext context)
@@ -86,20 +60,20 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
         if (ConvertVisemes)
             SetupVisemes(target, context);
         else
-            GeneratedObjectHelper.Destroy(ref _visemes);
+            GeneratedObjectHelper.Destroy(ref Visemes);
     }
 
     void SetupVisemes(Component target, IConversionContext context)
     {
         var mesh = ReflectionAccessor.GetObject<SkinnedMeshRenderer>(target, "VisemeSkinnedMesh");
-        var mode = ReflectionAccessor.GetInt(target, "lipSync");
+        var mode = ReflectionAccessor.GetEnumName(target, "lipSync", "Default");
 
         // Blendshape name for each viseme (in VRChat order)
         var shapes = new string[VISEME_SETTERS.Length];
 
         if (mesh != null && mesh.sharedMesh != null)
         {
-            if (mode == LIPSYNC_VISEME_BLENDSHAPE || mode == LIPSYNC_DEFAULT)
+            if (mode == "VisemeBlendShape" || mode == "Default")
             {
                 var configured = ReflectionAccessor.Get<string[]>(target, "VisemeBlendShapes");
 
@@ -107,61 +81,55 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
                 {
                     if (configured != null && i < configured.Length && !string.IsNullOrEmpty(configured[i]))
                         shapes[i] = configured[i];
-                    else if (mode == LIPSYNC_DEFAULT)
+                    else if (mode == "Default")
                         shapes[i] = FindDefaultViseme(mesh.sharedMesh, VRC_VISEME_NAMES[i]);
                 }
             }
-            else if (mode == LIPSYNC_JAW_FLAP_BLENDSHAPE)
+            else if (mode == "JawFlapBlendShape")
             {
                 // Closest approximation - open the mouth on the "aa" viseme
-                shapes[10] = ReflectionAccessor.Get(target, "MouthOpenBlendShapeName", "");
+                shapes[VISEME_AA] = ReflectionAccessor.Get(target, "MouthOpenBlendShapeName", "");
             }
         }
 
-        var any = false;
-
-        foreach (var shape in shapes)
-            if (!string.IsNullOrEmpty(shape) && mesh.sharedMesh.GetBlendShapeIndex(shape) >= 0)
-                any = true;
-
-        if (!any)
-        {
-            GeneratedObjectHelper.Destroy(ref _visemes);
-            return;
-        }
-
-        if (_visemes == null)
-            _visemes = GeneratedObjectHelper.EnsureChild(target.transform, VISEMES_NAME);
-
-        var analyzer = GeneratedObjectHelper.EnsureComponent<PartialVisemeAnalyzerWrapper>(_visemes);
-        var assigner = GeneratedObjectHelper.EnsureComponent<FrooxEngine.CommonAvatar.AvatarVoiceSourceAssignerWrapper>(_visemes);
-        var driver = GeneratedObjectHelper.EnsureComponent<PartialDirectVisemeDriverWrapper>(_visemes);
-
-        analyzer.Data.persistent = true;
-        analyzer.Data.Enabled = true;
-
-        // When the avatar is equipped, this will feed the user's voice into the analyzer
-        assigner.Data.persistent = true;
-        assigner.Data.Enabled = true;
-        assigner.Data.TargetReference = analyzer.Data.Source_Element.Member;
-
-        driver.Data.persistent = true;
-        driver.Data.Enabled = true;
-        driver.Data.Source = analyzer.Data;
-
-        var members = new List<string> { "Source" };
-
-        // The same blendshape can't be driven twice, so only the first viseme using it gets it
+        // Blendshape index for each viseme. The same blendshape can't be driven twice, so only the first viseme gets it.
+        var indices = new int[shapes.Length];
         var used = new HashSet<int>();
 
         for (int i = 0; i < shapes.Length; i++)
         {
-            if (string.IsNullOrEmpty(shapes[i]))
-                continue;
+            indices[i] = string.IsNullOrEmpty(shapes[i]) ? -1 : mesh.sharedMesh.GetBlendShapeIndex(shapes[i]);
 
-            var index = mesh.sharedMesh.GetBlendShapeIndex(shapes[i]);
+            if (indices[i] >= 0 && !used.Add(indices[i]))
+                indices[i] = -1;
+        }
 
-            if (index < 0 || !used.Add(index))
+        if (used.Count == 0)
+        {
+            GeneratedObjectHelper.Destroy(ref Visemes);
+            return;
+        }
+
+        if (Visemes == null)
+            Visemes = GeneratedObjectHelper.EnsureChild(target.transform, VISEMES_NAME);
+
+        var analyzer = ConverterComponentHelper.GetOrAdd<FrooxEngine.VisemeAnalyzerWrapper>(Visemes);
+        var assigner = ConverterComponentHelper.GetOrAdd<FrooxEngine.CommonAvatar.AvatarVoiceSourceAssignerWrapper>(Visemes);
+        var driver = ConverterComponentHelper.GetOrAdd<FrooxEngine.DirectVisemeDriverWrapper>(Visemes);
+
+        // Everything on the analyzer stays at defaults - the source is assigned when the avatar is equipped
+        ResoniteMemberFilter.Set(analyzer);
+
+        // When the avatar is equipped, this will feed the user's voice into the analyzer
+        assigner.Data.TargetReference = analyzer.Data.Source_Element.Member;
+
+        driver.Data.Source = analyzer.Data;
+
+        var members = new List<string> { "Source" };
+
+        for (int i = 0; i < shapes.Length; i++)
+        {
+            if (indices[i] < 0)
                 continue;
 
             members.Add(VISEME_MEMBERS[i]);
@@ -169,10 +137,10 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
             var setter = VISEME_SETTERS[i];
             var driverData = driver.Data;
 
-            BlendShapeFieldHelper.RunWithField(context, mesh, index, field => setter(driverData, field));
+            BlendShapeFieldHelper.RunWithField(context, mesh, indices[i], field => setter(driverData, field));
         }
 
-        driver.Members = members;
+        ResoniteMemberFilter.Set(driver, members.ToArray());
     }
 
     static string FindDefaultViseme(Mesh mesh, string viseme)
@@ -189,9 +157,5 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
         return null;
     }
 
-    protected override void Cleanup()
-    {
-        // We intentionally keep the generated ResoniteBipedAvatarDescriptor, since user might have adjusted it
-        GeneratedObjectHelper.Destroy(ref _visemes);
-    }
+    protected override void Cleanup() => GeneratedObjectHelper.Destroy(ref Visemes);
 }

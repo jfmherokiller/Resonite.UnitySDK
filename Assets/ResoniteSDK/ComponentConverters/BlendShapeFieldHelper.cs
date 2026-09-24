@@ -61,11 +61,12 @@ public static class BlendShapeFieldHelper
     }
 
     /// <summary>
-    /// Current weight of the blendshape in Resonite's normalized range
+    /// Converts Unity blendshape weight to Resonite's normalized weight.
+    /// Resonite uses normalized blendshape frame weight range between 0...1, so the weight needs to be scaled
+    /// to the actual last frame of the mesh, otherwise the strength will be wrong.
     /// </summary>
-    public static float GetNormalizedWeight(SkinnedMeshRenderer renderer, int index, float unityWeight)
+    public static float GetNormalizedWeight(Mesh mesh, int index, float unityWeight)
     {
-        var mesh = renderer.sharedMesh;
         var frameWeight = mesh.GetBlendShapeFrameWeight(index, mesh.GetBlendShapeFrameCount(index) - 1);
 
         return Mathf.Approximately(frameWeight, 0) ? 0 : unityWeight / frameWeight;

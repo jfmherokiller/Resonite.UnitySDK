@@ -12,12 +12,9 @@ using UnityEngine;
 [ConvertsComponentType(VRChatTypes.PhysBoneCollider)]
 public class VRCPhysBoneColliderConverter : ResoniteComponentConverter<Component>, IDynamicBoneColliderSource
 {
-    const int SHAPE_SPHERE = 0;
-    const int SHAPE_CAPSULE = 1;
-
     public DynamicBoneColliderBuilder Builder = new DynamicBoneColliderBuilder();
 
-    bool _reported;
+    readonly ConversionReporter _report = new ConversionReporter();
 
     protected override void UpdateConversion(Component target, IConversionContext context) => Rebuild();
 
@@ -39,16 +36,14 @@ public class VRCPhysBoneColliderConverter : ResoniteComponentConverter<Component
         if (target == null)
             return;
 
-        var shape = ReflectionAccessor.GetInt(target, "shapeType");
+        var shape = ReflectionAccessor.GetEnumName(target, "shapeType", "Sphere");
         var insideBounds = ReflectionAccessor.Get(target, "insideBounds", false);
 
-        if ((shape != SHAPE_SPHERE && shape != SHAPE_CAPSULE) || insideBounds)
+        if ((shape != "Sphere" && shape != "Capsule") || insideBounds)
         {
-            if (!_reported)
-                Debug.LogWarning($"PhysBone collider on {target.name} uses shape or mode that's not supported by Resonite " +
-                    $"(only non-inverted sphere and capsule colliders are converted).", target);
+            _report.Warning("shape", $"PhysBone collider on {target.name} uses shape or mode that's not supported by Resonite " +
+                $"(only non-inverted sphere and capsule colliders are converted).", target);
 
-            _reported = true;
             Builder.Clear();
             return;
         }
@@ -62,7 +57,7 @@ public class VRCPhysBoneColliderConverter : ResoniteComponentConverter<Component
             ReflectionAccessor.Get(target, "position", Vector3.zero),
             ReflectionAccessor.Get(target, "rotation", Quaternion.identity),
             ReflectionAccessor.Get(target, "radius", 0.5f),
-            shape == SHAPE_CAPSULE ? ReflectionAccessor.Get(target, "height", 2f) : 0,
+            shape == "Capsule" ? ReflectionAccessor.Get(target, "height", 2f) : 0,
             !(target is Behaviour behaviour) || behaviour.enabled);
     }
 

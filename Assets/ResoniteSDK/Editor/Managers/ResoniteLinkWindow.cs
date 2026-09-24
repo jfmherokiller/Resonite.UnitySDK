@@ -312,6 +312,10 @@ public class ResoniteLinkWindow : EditorWindow
         foreach (var root in roots)
             foreach (var component in root.GetComponentsInChildren<ResoniteComponent>())
                 DestroyImmediate(component);
+
+        foreach (var root in roots)
+            foreach (var filter in root.GetComponentsInChildren<ResoniteMemberFilter>(true))
+                DestroyImmediate(filter);
     }
 
     void ResetConversionState()

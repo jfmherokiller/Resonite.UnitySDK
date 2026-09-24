@@ -22,6 +22,19 @@ public static class ConverterComponentHelper
         return wrapper;
     }
 
+    /// <summary>
+    /// Returns the existing component of given type on the GameObject, or adds a new one
+    /// </summary>
+    public static T GetOrAdd<T>(GameObject obj) where T : Component
+    {
+        var component = obj.GetComponent<T>();
+
+        if (component == null)
+            component = obj.AddComponent<T>();
+
+        return component;
+    }
+
     public static void Remove<T>(ref T component)
         where T : Component
     {

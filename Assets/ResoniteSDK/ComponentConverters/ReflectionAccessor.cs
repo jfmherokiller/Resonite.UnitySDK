@@ -106,6 +106,17 @@ public static class ReflectionAccessor
     }
 
     /// <summary>
+    /// Reads an enum value as its name. This is more robust than comparing the numeric values, which can change
+    /// between versions of the package.
+    /// </summary>
+    public static string GetEnumName(object obj, string name, string fallback = "")
+    {
+        var value = GetRaw(obj, name);
+
+        return value is Enum ? value.ToString() : fallback;
+    }
+
+    /// <summary>
     /// Reads a Unity object reference. Destroyed/missing objects are returned as actual null.
     /// </summary>
     public static T GetObject<T>(object obj, string name) where T : UnityEngine.Object

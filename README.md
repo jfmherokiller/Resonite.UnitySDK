@@ -78,13 +78,15 @@ Converting avatar generally follows the same process.
 ### VRChat avatars
 If the [VRChat SDK](https://creators.vrchat.com/sdk/) and/or [VRCFury](https://vrcfury.com) are installed in the project, the following is converted automatically. Neither package is required for the SDK to compile - these converters are only activated when the types exist.
 
+Set up the Resonite avatar with the Avatar Setup Wizard as usual. When it finds a VRChat avatar descriptor, it can place the viewpoint at the VRChat view position ("Use VRChat View Position"). The setup can be undone with Ctrl+Z or the Revert button.
+
 | Source | Resonite result |
 |---|---|
-| VRC Avatar Descriptor | Adds `ResoniteBipedAvatarDescriptor` (if missing), with the viewpoint at VRChat's view position |
 | VRC Avatar Descriptor visemes | `VisemeAnalyzer` + `DirectVisemeDriver` driving the viseme (or jaw flap) blendshapes from the user's voice |
 | VRC PhysBone | `DynamicBoneChain` (simulation parameters are mapped heuristically, expect some tweaking) |
 | VRC PhysBone Collider | `DynamicBoneSphereCollider` (capsules are approximated with spheres, planes are unsupported) |
 | VRC / Unity Parent Constraint | `VirtualParent` |
+| VRC / Unity Position & Rotation Constraint | Generated anchor & follower slots with `CopyGlobalTransform` + `ValueCopy`, or `ValueCopy` of local values when solved in local space |
 | VRC / Unity Aim & LookAt Constraint | `LookAt` |
 | VRC / Unity Scale Constraint | `CopyGlobalScale` |
 | VRC Spatial Audio Source | Adjusts the falloff distances of the converted `AudioOutput` |
@@ -94,7 +96,12 @@ If the [VRChat SDK](https://creators.vrchat.com/sdk/) and/or [VRCFury](https://v
 | VRCFury Global Collider | Dynamic bone colliders added to all PhysBones on the avatar that allow collision |
 | VRCFury Delete During Upload | The object is made inactive |
 
-Not converted yet (reported in the console): Position and Rotation constraints, multiple constraint sources (only the highest weight source is used), contacts, stations, head chop, and VRCFury features relying on VRChat's animator (full controllers, gestures, toggle actions other than objects/blendshapes). Eye look and blinking are handled by Resonite's avatar creator ("Setup Eyes" on the Resonite descriptor).
+Not converted yet (reported in the console):
+- Constraints that only affect some axes, are frozen to world, or blend multiple sources / partial weights for position & rotation (e.g. twist bones). Parent, aim, look at and scale constraints use the source with the highest weight at full weight.
+- Contacts, stations and head chop
+- VRCFury features relying on VRChat's animator (full controllers, gestures, toggle actions other than objects/blendshapes)
+
+Eye look and blinking are handled by Resonite's avatar creator ("Eye Setup" in the wizard).
 
 Helper objects the converters generate (named `[Resonite] ...`) are not saved with the scene - they're recreated on every conversion.
 
@@ -251,6 +258,8 @@ There are a few important points:
 The Unity SDK will dynamically scan any available converters in your project before converting the scene - you don't need to do anything special to register them, other than deriving from the base class and specifying which type they convert.
 
 If the component you want to convert comes from a package that might not be installed (e.g. VRChat SDK), derive from `ResoniteComponentConverter<Component>` and add `[ConvertsComponentType("Full.Type.Name")]` to the converter instead. It will be registered only when the type exists, and you can read its data with `ReflectionAccessor`. See the `VRChat` and `VRCFury` converters for examples.
+
+Component bindings send all of their members to Resonite, so anything not assigned is sent as its C# default (0/null) instead of keeping Resonite's default. If a converter only sets some members, register them with `ResoniteMemberFilter.Set(wrapper, "MemberA", "MemberB")` and only those will be sent.
 
 ## Material Converters
 A similar system to component converters, the Unity SDK has material converter system. Its responsibility is to convert various materials into closest matches in Resonite. 
