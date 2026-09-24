@@ -12,14 +12,20 @@ using UnityEngine;
 ///   the avatar without modifying the Unity hierarchy.
 /// - Bone Constraint (legacy): same as a non-recursive Armature Link.
 /// - Delete During Upload: the object is made inactive in Resonite.
+/// - Blend Shape Link: linked blendshapes are driven from the base mesh (see <see cref="VRCFuryBlendShapeLink"/>).
+/// - Toggle: converted into context menu toggles (see <see cref="VRCFuryToggle"/>).
 ///
-/// Other features (toggles, full controllers, menus...) rely on VRChat's animator and menu systems and are reported.
+/// Other features (full controllers, gestures, menus...) rely on VRChat's animator and menu systems and are reported.
 /// All VRCFury types are internal, so the data is read through reflection.
 /// </summary>
-[ConvertsComponentType("VF.Model.VRCFury")]
+[ConvertsComponentType(VRCFuryTypes.VRCFury)]
 public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActiveOverride
 {
-    public List<FrooxEngine.VirtualParentWrapper> Links = new List<FrooxEngine.VirtualParentWrapper>();
+    public List<PartialVirtualParentWrapper> Links = new List<PartialVirtualParentWrapper>();
+
+    // Generated helper objects (not saved with the scene)
+    public GameObject BlendShapeLinkObject;
+    public List<GameObject> ToggleObjects = new List<GameObject>();
 
     [NonSerialized]
     HashSet<string> _reported = new HashSet<string>();
@@ -38,6 +44,8 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
     protected override void UpdateConversion(Component target, IConversionContext context)
     {
         var links = new List<LinkRequest>();
+        var blendShapeLinks = new List<object>();
+        var toggles = new List<object>();
 
         foreach (var feature in GetFeatures(target))
         {
@@ -55,6 +63,14 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
                     // Handled by ForceSlotInactive
                     break;
 
+                case "BlendShapeLink":
+                    blendShapeLinks.Add(feature);
+                    break;
+
+                case "Toggle":
+                    toggles.Add(feature);
+                    break;
+
                 default:
                     ReportOnce(feature.GetType().Name, $"VRCFury feature {feature.GetType().Name} on {target.name} is not " +
                         $"converted to Resonite.");
@@ -63,6 +79,33 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
         }
 
         ApplyLinks(links);
+
+        VRCFuryBlendShapeLink.Apply(target, blendShapeLinks, ref BlendShapeLinkObject, context);
+        ApplyToggles(target, toggles, context);
+    }
+
+    void ApplyToggles(Component target, List<object> toggles, IConversionContext context)
+    {
+        if (ToggleObjects == null)
+            ToggleObjects = new List<GameObject>();
+
+        while (ToggleObjects.Count < toggles.Count)
+            ToggleObjects.Add(null);
+
+        for (int i = 0; i < toggles.Count; i++)
+        {
+            var toggleObject = ToggleObjects[i];
+            VRCFuryToggle.Apply(target, toggles[i], ref toggleObject, context, ReportOnce);
+            ToggleObjects[i] = toggleObject;
+        }
+
+        // Remove toggles which no longer exist
+        for (int i = ToggleObjects.Count - 1; i >= toggles.Count; i--)
+        {
+            var toggleObject = ToggleObjects[i];
+            GeneratedObjectHelper.Destroy(ref toggleObject);
+            ToggleObjects.RemoveAt(i);
+        }
     }
 
     static IEnumerable<object> GetFeatures(Component target)
@@ -283,9 +326,11 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
 
             if (wrapper == null)
             {
-                wrapper = request.Prop.gameObject.AddComponent<FrooxEngine.VirtualParentWrapper>();
+                wrapper = request.Prop.gameObject.AddComponent<PartialVirtualParentWrapper>();
                 Links.Add(wrapper);
             }
+
+            wrapper.Members = new List<string> { "OverrideParent", "LocalPosition", "LocalRotation", "LocalScale" };
 
             var parent = wrapper.Data;
             var prop = request.Prop;
@@ -318,5 +363,16 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
                 DestroyImmediate(link);
 
         Links.Clear();
+
+        GeneratedObjectHelper.Destroy(ref BlendShapeLinkObject);
+
+        if (ToggleObjects != null)
+            for (int i = 0; i < ToggleObjects.Count; i++)
+            {
+                var toggleObject = ToggleObjects[i];
+                GeneratedObjectHelper.Destroy(ref toggleObject);
+            }
+
+        ToggleObjects?.Clear();
     }
 }
