@@ -76,7 +76,7 @@ Converting avatar generally follows the same process.
     - Realtime mode will translate the changes in Editor right as you make them - you can wear the avatar and attach more objects to it while testing them live in Resonite
 
 ### VRChat avatars
-If the [VRChat SDK](https://creators.vrchat.com/sdk/) and/or [VRCFury](https://vrcfury.com) are installed in the project, the following is converted automatically. Neither package is required for the SDK to compile - these converters are only activated when the types exist.
+If the [VRChat SDK](https://creators.vrchat.com/sdk/), [VRCFury](https://vrcfury.com) and/or the legacy Dynamic Bone asset are installed in the project, the following is converted automatically. None of them are required for the SDK to compile - these converters are only activated when the types exist.
 
 Set up the Resonite avatar with the Avatar Setup Wizard as usual. When it finds a VRChat avatar descriptor, it can place the viewpoint at the VRChat view position ("Use VRChat View Position"). The setup can be undone with Ctrl+Z or the Revert button.
 
@@ -85,6 +85,8 @@ Set up the Resonite avatar with the Avatar Setup Wizard as usual. When it finds 
 | VRC Avatar Descriptor visemes | `VisemeAnalyzer` + `DirectVisemeDriver` driving the viseme (or jaw flap) blendshapes from the user's voice |
 | VRC PhysBone | `DynamicBoneChain` (simulation parameters are mapped heuristically, expect some tweaking) |
 | VRC PhysBone Collider | `DynamicBoneSphereCollider` (capsules are approximated with spheres, planes are unsupported) |
+| Dynamic Bone (legacy asset) | `DynamicBoneChain` (parameters mapped heuristically; freeze axis and distribution curves other than radius are ignored) |
+| Dynamic Bone Collider | `DynamicBoneSphereCollider` (capsules, including tapered ones, approximated with spheres; plane and inside colliders are unsupported) |
 | VRC / Unity Parent Constraint | `VirtualParent` |
 | VRC / Unity Position & Rotation Constraint | Generated anchor & follower slots with `CopyGlobalTransform` + `ValueCopy`, or `ValueCopy` of local values when solved in local space |
 | VRC / Unity Aim & LookAt Constraint | `LookAt` |
