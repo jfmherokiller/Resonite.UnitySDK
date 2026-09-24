@@ -37,9 +37,6 @@ public static class ComponentConverterRepository
             if (converter.IsAbstract)
                 continue;
 
-            // Determine the type it converts from the generic base type
-            var unityType = GetUnityComponentType(converter);
-
             var supressionHandlers = converter.GetMethods(BindingFlags.Static | BindingFlags.Public).
                 Where(m => m.GetCustomAttribute<ConverterSupressionHandlerAttribute>() != null).ToList();
 
@@ -59,9 +56,47 @@ public static class ComponentConverterRepository
                     $"Is the method signature correct?");
             }
 
-            _converters.Add(unityType, new ConverterInfo(converter, supressionHandler));
+            var info = new ConverterInfo(converter, supressionHandler);
+
+            // Converters for types that might not be available at compile time are registered by name
+            var byName = converter.GetCustomAttributes<ConvertsComponentTypeAttribute>(false).ToList();
+
+            if (byName.Count > 0)
+            {
+                foreach (var attribute in byName)
+                    if (ComponentTypesByName.Value.TryGetValue(attribute.TypeName, out var namedType))
+                        Register(namedType, info);
+
+                continue;
+            }
+
+            // Determine the type it converts from the generic base type
+            Register(GetUnityComponentType(converter), info);
         }
     }
+
+    static void Register(Type unityType, ConverterInfo info)
+    {
+        if (_converters.TryGetValue(unityType, out var existing))
+        {
+            Debug.LogWarning($"Multiple converters for {unityType.FullName}: {existing.Type.FullName} and {info.Type.FullName}. " +
+                $"Using {existing.Type.FullName}");
+            return;
+        }
+
+        _converters.Add(unityType, info);
+    }
+
+    static readonly Lazy<Dictionary<string, Type>> ComponentTypesByName = new Lazy<Dictionary<string, Type>>(() =>
+    {
+        var types = new Dictionary<string, Type>();
+
+        foreach (var type in TypeCache.GetTypesDerivedFrom<Component>())
+            if (type.FullName != null && !types.ContainsKey(type.FullName))
+                types.Add(type.FullName, type);
+
+        return types;
+    });
 
     static Type GetUnityComponentType(Type type)
     {

@@ -75,6 +75,23 @@ Converting avatar generally follows the same process.
 12) Click either "Send Current Scene" or "Start Realtime Mode"
     - Realtime mode will translate the changes in Editor right as you make them - you can wear the avatar and attach more objects to it while testing them live in Resonite
 
+### VRChat avatars
+If the [VRChat SDK](https://creators.vrchat.com/sdk/) and/or [VRCFury](https://vrcfury.com) are installed in the project, the following is converted automatically. Neither package is required for the SDK to compile - these converters are only activated when the types exist.
+
+| Source | Resonite result |
+|---|---|
+| VRC Avatar Descriptor | Adds `ResoniteBipedAvatarDescriptor` (if missing), with the viewpoint at VRChat's view position |
+| VRC PhysBone | `DynamicBoneChain` (simulation parameters are mapped heuristically, expect some tweaking) |
+| VRC PhysBone Collider | `DynamicBoneSphereCollider` (capsules are approximated with spheres, planes are unsupported) |
+| VRC / Unity Parent Constraint | `VirtualParent` |
+| VRC / Unity Aim & LookAt Constraint | `LookAt` |
+| VRC / Unity Scale Constraint | `CopyGlobalScale` |
+| VRC Spatial Audio Source | Adjusts the falloff distances of the converted `AudioOutput` |
+| VRCFury Armature Link / Bone Constraint | Prop/clothing bones are linked to avatar bones with `VirtualParent` |
+| VRCFury Delete During Upload | The object is made inactive |
+
+Position and Rotation constraints, multi-source constraints (only the highest weight source is used), and VRCFury features relying on VRChat's animator/menus (toggles, full controllers...) aren't converted yet - they're reported in the console.
+
 ## What if something doesn't convert properly?
 If you run into content that doesn't convert at all or has conversion problems, best way is to make sure it's reported!
 
@@ -226,6 +243,8 @@ There are a few important points:
         - If not possible to convert at all - you can just delete bindings for that state
      
 The Unity SDK will dynamically scan any available converters in your project before converting the scene - you don't need to do anything special to register them, other than deriving from the base class and specifying which type they convert.
+
+If the component you want to convert comes from a package that might not be installed (e.g. VRChat SDK), derive from `ResoniteComponentConverter<Component>` and add `[ConvertsComponentType("Full.Type.Name")]` to the converter instead. It will be registered only when the type exists, and you can read its data with `ReflectionAccessor`. See the `VRChat` and `VRCFury` converters for examples.
 
 ## Material Converters
 A similar system to component converters, the Unity SDK has material converter system. Its responsibility is to convert various materials into closest matches in Resonite. 
