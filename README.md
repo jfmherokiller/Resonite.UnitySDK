@@ -84,6 +84,7 @@ Set up the Resonite avatar with the Avatar Setup Wizard as usual. When it finds 
 |---|---|
 | VRC Avatar Descriptor visemes | `VisemeAnalyzer` + `DirectVisemeDriver` driving the viseme (or jaw flap) blendshapes from the user's voice |
 | VRC Expression Menu toggles | Context menu toggles under "Avatar Toggles", following the submenus (including submenus used in multiple places; menus linking back to their parents aren't followed into a loop). What each toggle does is read from the FX controller: object on/off, renderer enabled and blendshapes. Int parameters with multiple options become selectors (`ValueMultiplexer`). A toggle appearing in multiple places gets an item in each. |
+| VRC Expression Menu radial puppets | A submenu of steps (0%, 25%, 50%, 75%, 100%) setting the puppet's value, which drives the animated properties through `ValueGradientDriver`s sampled from the FX controller (including 1D blend trees and motion time). Resonite's context menu has no sliders, so the value is set in steps. |
 | VRC PhysBone | `DynamicBoneChain` (simulation parameters are mapped heuristically, expect some tweaking) |
 | VRC PhysBone Collider | `DynamicBoneSphereCollider` (capsules are approximated with spheres, planes are unsupported) |
 | Dynamic Bone (legacy asset) | `DynamicBoneChain` (parameters mapped heuristically; freeze axis and distribution curves other than radius are ignored) |
@@ -104,7 +105,7 @@ Set up the Resonite avatar with the Avatar Setup Wizard as usual. When it finds 
 Not converted yet (reported in the console):
 - Constraints that are frozen to world or only affect some rotation/scale axes. Aim, look at and scale constraints use the source with the highest weight at full weight.
 - Contacts, stations and head chop
-- Expression menu buttons and puppets, and toggle animations other than object on/off, renderer enabled and blendshapes (e.g. material swaps, blend trees). Each property can only be driven by one toggle in Resonite - if multiple toggles animate the same property, only the first one controls it.
+- Expression menu buttons and two/four axis puppets, and toggle animations other than object on/off, renderer enabled and blendshapes (e.g. material swaps, blend trees). Each property can only be driven by one toggle in Resonite - if multiple toggles animate the same property, only the first one controls it.
 - VRCFury features relying on VRChat's animator beyond menu toggles (gestures, full controller layers not driven by the menu, toggle actions other than objects/blendshapes)
 
 Eye look and blinking are handled by Resonite's avatar creator ("Eye Setup" in the wizard).
