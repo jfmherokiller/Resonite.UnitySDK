@@ -10,8 +10,13 @@ public class ParentConstraintConverter : ConstraintConverterBase<ParentConstrain
             Kind = ConstraintKind.Parent,
             Active = target.constraintActive && target.enabled,
             Target = target.transform,
-            AllAxes = ConstraintData.IsAllAxes(target.translationAxis) && ConstraintData.IsAllAxes(target.rotationAxis),
+            GlobalWeight = target.weight,
+            AllRotationAxes = ConstraintData.IsAllAxes(target.rotationAxis),
+            RestPosition = target.translationAtRest,
+            RestRotation = Quaternion.Euler(target.rotationAtRest),
         };
+
+        data.SetPositionAxes(target.translationAxis);
 
         for (int i = 0; i < target.sourceCount; i++)
         {
@@ -20,7 +25,7 @@ public class ParentConstraintConverter : ConstraintConverterBase<ParentConstrain
             data.Sources.Add(new ConstraintSourceData()
             {
                 Source = source.sourceTransform,
-                Weight = source.weight * target.weight,
+                Weight = source.weight,
                 PositionOffset = target.GetTranslationOffset(i),
                 RotationOffset = target.GetRotationOffset(i),
             });
@@ -39,10 +44,11 @@ public class PositionConstraintConverter : ConstraintConverterBase<PositionConst
             Kind = ConstraintKind.Position,
             Active = target.constraintActive && target.enabled,
             Target = target.transform,
-            AllAxes = ConstraintData.IsAllAxes(target.translationAxis),
             PositionOffset = target.translationOffset,
+            RestPosition = target.translationAtRest,
         };
 
+        data.SetPositionAxes(target.translationAxis);
         ConstraintData.ReadSources(target, data);
 
         return data;
@@ -58,8 +64,9 @@ public class RotationConstraintConverter : ConstraintConverterBase<RotationConst
             Kind = ConstraintKind.Rotation,
             Active = target.constraintActive && target.enabled,
             Target = target.transform,
-            AllAxes = ConstraintData.IsAllAxes(target.rotationAxis),
+            AllRotationAxes = ConstraintData.IsAllAxes(target.rotationAxis),
             RotationOffset = target.rotationOffset,
+            RestRotation = Quaternion.Euler(target.rotationAtRest),
         };
 
         ConstraintData.ReadSources(target, data);
@@ -77,7 +84,7 @@ public class AimConstraintConverter : ConstraintConverterBase<AimConstraint>
             Kind = ConstraintKind.Aim,
             Active = target.constraintActive && target.enabled,
             Target = target.transform,
-            AllAxes = ConstraintData.IsAllAxes(target.rotationAxis),
+            AllRotationAxes = ConstraintData.IsAllAxes(target.rotationAxis),
             AimAxis = target.aimVector,
             UpAxis = target.upVector,
             RotationOffset = target.rotationOffset,
@@ -119,7 +126,7 @@ public class ScaleConstraintConverter : ConstraintConverterBase<ScaleConstraint>
             Kind = ConstraintKind.Scale,
             Active = target.constraintActive && target.enabled,
             Target = target.transform,
-            AllAxes = ConstraintData.IsAllAxes(target.scalingAxis),
+            AllScaleAxes = ConstraintData.IsAllAxes(target.scalingAxis),
             ScaleOffset = target.scaleOffset,
         };
 

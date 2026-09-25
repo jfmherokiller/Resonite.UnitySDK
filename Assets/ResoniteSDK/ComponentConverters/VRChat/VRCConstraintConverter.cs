@@ -27,9 +27,9 @@ public class VRCConstraintConverter : ConstraintConverterBase<Component>
         }
 
         var enabled = !(target is Behaviour behaviour) || behaviour.enabled;
-        var globalWeight = ReflectionAccessor.Get(target, "GlobalWeight", 1f);
 
         data.Active = enabled && ReflectionAccessor.Get(target, "IsActive", true);
+        data.GlobalWeight = ReflectionAccessor.Get(target, "GlobalWeight", 1f);
 
         // Constraints can target a different transform than the one they're on
         var targetTransform = ReflectionAccessor.GetTransform(target, "TargetTransform");
@@ -42,7 +42,7 @@ public class VRCConstraintConverter : ConstraintConverterBase<Component>
             data.Sources.Add(new ConstraintSourceData()
             {
                 Source = ReflectionAccessor.GetTransform(source, "SourceTransform"),
-                Weight = ReflectionAccessor.Get(source, "Weight", 1f) * globalWeight,
+                Weight = ReflectionAccessor.Get(source, "Weight", 1f),
                 PositionOffset = ReflectionAccessor.Get(source, "ParentPositionOffset", Vector3.zero),
                 RotationOffset = ReflectionAccessor.Get(source, "ParentRotationOffset", Vector3.zero),
             });
@@ -51,26 +51,22 @@ public class VRCConstraintConverter : ConstraintConverterBase<Component>
         data.RotationOffset = ReflectionAccessor.Get(target, "RotationOffset", Vector3.zero);
         data.ScaleOffset = ReflectionAccessor.Get(target, "ScaleOffset", Vector3.one);
 
+        if (ReflectionAccessor.Has(target, "PositionAtRest"))
+            data.RestPosition = ReflectionAccessor.Get(target, "PositionAtRest", Vector3.zero);
+
+        if (ReflectionAccessor.Has(target, "RotationAtRest"))
+            data.RestRotation = Quaternion.Euler(ReflectionAccessor.Get(target, "RotationAtRest", Vector3.zero));
+
+        // Axes default to affected when the fields are missing
+        data.PositionX = ReflectionAccessor.Get(target, "AffectsPositionX", true);
+        data.PositionY = ReflectionAccessor.Get(target, "AffectsPositionY", true);
+        data.PositionZ = ReflectionAccessor.Get(target, "AffectsPositionZ", true);
+        data.AllRotationAxes = AffectsAll(target, "AffectsRotation");
+        data.AllScaleAxes = AffectsAll(target, "AffectsScale");
+
         switch (data.Kind)
         {
-            case ConstraintKind.Parent:
-                data.AllAxes = AffectsAll(target, "AffectsPosition") && AffectsAll(target, "AffectsRotation");
-                break;
-
-            case ConstraintKind.Position:
-                data.AllAxes = AffectsAll(target, "AffectsPosition");
-                break;
-
-            case ConstraintKind.Rotation:
-                data.AllAxes = AffectsAll(target, "AffectsRotation");
-                break;
-
-            case ConstraintKind.Scale:
-                data.AllAxes = AffectsAll(target, "AffectsScale");
-                break;
-
             case ConstraintKind.Aim:
-                data.AllAxes = AffectsAll(target, "AffectsRotation");
                 data.AimAxis = ReflectionAccessor.Get(target, "AimAxis", Vector3.forward);
                 data.UpAxis = ReflectionAccessor.Get(target, "UpAxis", Vector3.up);
 

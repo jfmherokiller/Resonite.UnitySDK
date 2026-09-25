@@ -90,6 +90,7 @@ Set up the Resonite avatar with the Avatar Setup Wizard as usual. When it finds 
 | Dynamic Bone Collider | `DynamicBoneSphereCollider` (capsules, including tapered ones, approximated with spheres; plane and inside colliders are unsupported) |
 | VRC / Unity Parent Constraint | `VirtualParent` |
 | VRC / Unity Position & Rotation Constraint | Generated anchor & follower slots with `CopyGlobalTransform` + `ValueCopy`, or `ValueCopy` of local values when solved in local space |
+| VRC / Unity Parent, Position & Rotation Constraint with multiple sources, partial weight (e.g. twist bones) or only some position axes | ProtoFlux: each source gets a follower slot, their local poses are blended by weight and with the rest pose (chained `Slerp`/`ValueLerp`) and drive the constrained object (`ValueFieldDrive`) |
 | VRC / Unity Aim & LookAt Constraint | `LookAt` |
 | VRC / Unity Scale Constraint | `CopyGlobalScale` |
 | VRC Spatial Audio Source | Adjusts the falloff distances of the converted `AudioOutput` |
@@ -101,7 +102,7 @@ Set up the Resonite avatar with the Avatar Setup Wizard as usual. When it finds 
 | VRCFury Delete During Upload | The object is made inactive |
 
 Not converted yet (reported in the console):
-- Constraints that only affect some axes, are frozen to world, or blend multiple sources / partial weights for position & rotation (e.g. twist bones). Parent, aim, look at and scale constraints use the source with the highest weight at full weight.
+- Constraints that are frozen to world or only affect some rotation/scale axes. Aim, look at and scale constraints use the source with the highest weight at full weight.
 - Contacts, stations and head chop
 - Expression menu buttons and puppets, and toggle animations other than object on/off, renderer enabled and blendshapes (e.g. material swaps, blend trees). Each property can only be driven by one toggle in Resonite - if multiple toggles animate the same property, only the first one controls it.
 - VRCFury features relying on VRChat's animator beyond menu toggles (gestures, full controller layers not driven by the menu, toggle actions other than objects/blendshapes)
@@ -265,6 +266,8 @@ The Unity SDK will dynamically scan any available converters in your project bef
 If the component you want to convert comes from a package that might not be installed (e.g. VRChat SDK), derive from `ResoniteComponentConverter<Component>` and add `[ConvertsComponentType("Full.Type.Name")]` to the converter instead. It will be registered only when the type exists, and you can read its data with `ReflectionAccessor`. See the `VRChat` and `VRCFury` converters for examples.
 
 Component bindings send all of their members to Resonite, so anything not assigned is sent as its C# default (0/null) instead of keeping Resonite's default. If a converter only sets some members, register them with `ResoniteMemberFilter.Set(wrapper, "MemberA", "MemberB")` and only those will be sent.
+
+Converters can build ProtoFlux graphs with `ProtoFluxGraph` (see the constraint converters for an example). A field drive needs both the `ValueFieldDrive` node and its `FieldDriveBase<T>+Proxy` sent in the same batch - otherwise Resonite creates its own proxy for the node, without a target. `ProtoFluxGraph` puts both on the same object, so they're always sent together.
 
 ## Material Converters
 A similar system to component converters, the Unity SDK has material converter system. Its responsibility is to convert various materials into closest matches in Resonite. 
