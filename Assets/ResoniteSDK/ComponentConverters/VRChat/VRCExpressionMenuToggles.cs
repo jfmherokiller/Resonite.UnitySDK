@@ -42,9 +42,12 @@ public class ExpressionMenuSource
 /// - Bool and float parameters (and int parameters with a single value) become on/off toggles. If the same toggle
 ///   appears in multiple places, each item flips the same state.
 /// - Int parameters with multiple values become selectors, where each item selects its value.
+/// - Radial puppets become a submenu of steps (0%, 25%...) setting the puppet's value, which drives the properties
+///   through gradients sampled from the animator (including 1D blend trees and motion time). Resonite's context menu
+///   has no sliders, so the value can only be set in steps.
 ///
 /// Each property can only be driven by one toggle in Resonite, so if multiple parameters control the same property,
-/// only the first one gets it. Buttons and puppets aren't converted.
+/// only the first one gets it. Buttons and two/four axis puppets aren't converted.
 /// </summary>
 public static class VRCExpressionMenuToggles
 {
@@ -52,12 +55,17 @@ public static class VRCExpressionMenuToggles
     const int MAX_MENU_DEPTH = 16;
     const int MAX_CONTROLS = 2000;
 
+    // Values the puppet is sampled at, and the steps offered in its menu
+    const int PUPPET_SAMPLES = 10;
+    static readonly float[] PUPPET_STEPS = { 0f, 0.25f, 0.5f, 0.75f, 1f };
+
     class MenuControl
     {
         public string[] Folders;
         public string Label;
         public string Parameter;
         public float Value;
+        public bool Radial;
     }
 
     /// <param name="owner">Component the menu belongs to. Selector states are created under it.</param>
@@ -192,7 +200,16 @@ public static class VRCExpressionMenuToggles
             var unsupported = new HashSet<string>();
             var options = group.ToList();
 
-            if (definition.type == "Int" && options.Select(o => Mathf.RoundToInt(o.Value)).Distinct().Count() > 1)
+            if (options.Any(o => o.Radial))
+            {
+                BuildPuppet(owner, source, controllers, parameter, definition.defaultValue, options.Where(o => o.Radial).ToList(),
+                    claimed, unsupported, context, report, nextItem, nextSelector);
+
+                if (options.Any(o => !o.Radial))
+                    report.Info("puppettoggle:" + parameter, $"Menu parameter {parameter} is used by both a radial puppet and toggles, " +
+                        $"only the puppet is converted.", owner);
+            }
+            else if (definition.type == "Int" && options.Select(o => Mathf.RoundToInt(o.Value)).Distinct().Count() > 1)
                 BuildSelector(owner, source, controllers, parameter, definition.defaultValue, options, claimed, unsupported,
                     context, report, nextItem, nextSelector);
             else
@@ -280,6 +297,38 @@ public static class VRCExpressionMenuToggles
             AvatarToggleBuilder.BuildSelectorOption(nextItem(options[0].Folders, $"{parameter}: Default", "Option"), indexField, defaultIndex);
     }
 
+    static void BuildPuppet(Component owner, ExpressionMenuSource source, List<RuntimeAnimatorController> controllers,
+        string parameter, float defaultValue, List<MenuControl> puppets, HashSet<string> claimed, HashSet<string> unsupported,
+        IConversionContext context, ConversionReporter report, Func<string[], string, string, GameObject> nextItem,
+        Func<string, GameObject> nextSelector)
+    {
+        var samples = Enumerable.Range(0, PUPPET_SAMPLES + 1)
+            .Select(i => i / (float)PUPPET_SAMPLES)
+            .Select(position => (position, state: AnimatorToggleAnalyzer.SampleFloat(controllers, parameter, position, source.ResolvePath, unsupported)))
+            .ToList();
+
+        Claim(claimed, parameter, report, owner, samples.Select(s => s.state).ToArray());
+
+        if (samples.All(s => s.state.IsEmpty))
+        {
+            report.Info("empty:" + parameter, $"Radial puppet {puppets[0].Label} ({parameter}) doesn't animate anything " +
+                $"that can be converted.", owner);
+            return;
+        }
+
+        var value = AvatarToggleBuilder.BuildPuppet(nextSelector($"[Resonite] Puppet {parameter}"), Mathf.Clamp01(defaultValue),
+            samples, context);
+
+        // Each place the puppet appears in gets a submenu with the steps
+        foreach (var puppet in puppets)
+        {
+            var folders = puppet.Folders.Append(puppet.Label).ToArray();
+
+            foreach (var step in PUPPET_STEPS)
+                AvatarToggleBuilder.BuildPuppetStep(nextItem(folders, $"{Mathf.RoundToInt(step * 100)}%", "Puppet Step"), value, step);
+        }
+    }
+
     static ToggleState ReadState(List<RuntimeAnimatorController> controllers, ExpressionMenuSource source, string parameter, float value,
         HashSet<string> unsupported)
     {
@@ -354,6 +403,20 @@ public static class VRCExpressionMenuToggles
 
                     if (subMenu is UnityEngine.Object subMenuObject && subMenuObject != null)
                         CollectControls(subMenu, folders.Append(name).ToArray(), ancestors, controls, owner, report);
+                    break;
+
+                case "RadialPuppet":
+                    // The puppet sets its first sub parameter (0...1)
+                    var puppetParameter = ReflectionAccessor.Get(ReflectionAccessor.GetList(control, "subParameters").FirstOrDefault(), "name", "");
+
+                    if (!string.IsNullOrEmpty(puppetParameter))
+                        controls.Add(new MenuControl()
+                        {
+                            Folders = folders,
+                            Label = name,
+                            Parameter = puppetParameter,
+                            Radial = true,
+                        });
                     break;
 
                 case "Toggle":

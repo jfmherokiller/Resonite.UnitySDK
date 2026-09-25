@@ -11,6 +11,8 @@ using UnityEngine;
 ///   off values (<see cref="BuildToggle"/>)
 /// - Selector: multiple items set an index (e.g. VRChat int parameter), which selects the value of each controlled
 ///   property (<see cref="BuildSelector"/>)
+/// - Puppet: items set a float value, which maps to the value of each controlled property (<see cref="BuildPuppet"/>).
+///   Resonite's context menu has no sliders, so the value is set in steps.
 ///
 /// Everything is generated as helper objects, which are not saved with the scene.
 /// </summary>
@@ -170,6 +172,78 @@ public static class AvatarToggleBuilder
         var button = ConverterComponentHelper.GetOrAdd<ButtonValueSetIntWrapper>(item).Data;
         button.TargetValue = selectorIndex;
         button.SetValue = index;
+    }
+
+    /// <summary>
+    /// Builds a puppet - a float value (0...1) that sets the properties by interpolating between the sampled states.
+    /// Blendshapes are interpolated, on/off properties switch at the sample points. Items made with
+    /// <see cref="BuildPuppetStep"/> set the value.
+    /// </summary>
+    /// <param name="samples">State at each sampled value, in increasing order. Properties missing from a sample use their rest value.</param>
+    /// <returns>The puppet's value</returns>
+    public static FrooxEngine.IField<float> BuildPuppet(GameObject stateObject, float defaultValue,
+        IReadOnlyList<(float position, ToggleState state)> samples, IConversionContext context)
+    {
+        var value = ConverterComponentHelper.GetOrAdd<ValueMultiDriverFloatWrapper>(stateObject).Data;
+        value.Value = defaultValue;
+        value.Drives.Clear();
+
+        var floats = samples.SelectMany(s => s.state.Floats.Values).GroupBy(v => v.target.Key).Select(g => g.First().target).ToList();
+        var bools = samples.SelectMany(s => s.state.Bools.Values).GroupBy(v => v.target.Key).Select(g => g.First().target).ToList();
+
+        var floatDrivers = EnsureCount<ValueGradientDriverFloatWrapper>(stateObject, floats.Count);
+
+        for (int i = 0; i < floats.Count; i++)
+        {
+            var driver = floatDrivers[i].Data;
+            var target = floats[i];
+
+            driver.Interpolate = true;
+            driver.Points.Clear();
+
+            foreach (var (position, state) in samples)
+            {
+                var point = driver.Points.Add();
+                point.Position = position;
+                point.Value = state.Floats.TryGetValue(target.Key, out var sampled) ? sampled.value : target.RestValue;
+            }
+
+            target.ResolveField(context, field => driver.Target = field);
+            value.Drives.Add(driver.Progress_Element.Member);
+        }
+
+        var boolDrivers = EnsureCount<ValueGradientDriverBoolWrapper>(stateObject, bools.Count);
+
+        for (int i = 0; i < bools.Count; i++)
+        {
+            var driver = boolDrivers[i].Data;
+            var target = bools[i];
+
+            driver.Interpolate = false;
+            driver.Points.Clear();
+
+            foreach (var (position, state) in samples)
+            {
+                var point = driver.Points.Add();
+                point.Position = position;
+                point.Value = state.Bools.TryGetValue(target.Key, out var sampled) ? sampled.value : target.RestValue;
+            }
+
+            target.ResolveField(context, field => driver.Target = field);
+            value.Drives.Add(driver.Progress_Element.Member);
+        }
+
+        return value.Value_Element.Member;
+    }
+
+    /// <summary>
+    /// Builds a menu item that sets a puppet to the given value
+    /// </summary>
+    public static void BuildPuppetStep(GameObject item, FrooxEngine.IField<float> puppetValue, float value)
+    {
+        var button = ConverterComponentHelper.GetOrAdd<ButtonValueSetFloatWrapper>(item).Data;
+        button.TargetValue = puppetValue;
+        button.SetValue = value;
     }
 
     static GameObject EnsureMenu(Transform parent, string objectName, string label, bool isRoot)

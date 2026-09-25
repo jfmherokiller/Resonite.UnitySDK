@@ -12,6 +12,8 @@ using UnityEngine;
 /// Every transition that has conditions on the parameter, all of which are satisfied by the value, is followed to its
 /// destination state. The animation clips of those states are then read into a <see cref="ToggleState"/>.
 /// Supported animated properties are object active state, renderer enabled state and blendshape weights.
+/// Float parameters (e.g. radial puppets) can be sampled with <see cref="SampleFloat"/>, which also handles 1D blend trees
+/// and motion time.
 /// </summary>
 public static class AnimatorToggleAnalyzer
 {
@@ -60,8 +62,9 @@ public static class AnimatorToggleAnalyzer
     /// Reads the values the clips set (at their first keyframe) into the state.
     /// </summary>
     /// <param name="resolvePath">Resolves the animated path to a transform, or null if it doesn't exist</param>
+    /// <param name="normalizedTime">Evaluates the clips at this point (0...1 of their length) instead of the first keyframe</param>
     public static void ReadClips(IEnumerable<AnimationClip> clips, Func<string, Transform> resolvePath, ToggleState state,
-        ICollection<string> unsupported)
+        ICollection<string> unsupported, float? normalizedTime = null)
     {
         foreach (var clip in clips)
         {
@@ -72,7 +75,7 @@ public static class AnimatorToggleAnalyzer
                 if (curve == null || curve.length == 0)
                     continue;
 
-                var value = curve.keys[0].value;
+                var value = normalizedTime.HasValue ? curve.Evaluate(normalizedTime.Value * clip.length) : curve.keys[0].value;
                 var target = resolvePath(binding.path);
 
                 if (target == null)
@@ -104,6 +107,126 @@ public static class AnimatorToggleAnalyzer
             if (AnimationUtility.GetObjectReferenceCurveBindings(clip).Length > 0)
                 unsupported.Add("material/object swaps");
         }
+    }
+
+    /// <summary>
+    /// Reads what the controllers do when a float parameter has the given value (e.g. a radial puppet). In addition to
+    /// transitions (e.g. Greater / Less conditions), this includes states whose motion depends on the parameter directly:
+    /// - 1D blend trees blended by the parameter, interpolated between their children like Unity does
+    /// - Motion time driven by the parameter, evaluating the clip at that point
+    /// </summary>
+    public static ToggleState SampleFloat(IEnumerable<RuntimeAnimatorController> controllers, string parameter, float value,
+        Func<string, Transform> resolvePath, ICollection<string> unsupported)
+    {
+        var state = new ToggleState();
+
+        foreach (var runtimeController in controllers)
+        {
+            var controller = runtimeController as AnimatorController;
+            var overrides = runtimeController as AnimatorOverrideController;
+
+            if (overrides != null)
+                controller = overrides.runtimeAnimatorController as AnimatorController;
+
+            var controllerParameter = controller != null ? controller.parameters.FirstOrDefault(p => p.name == parameter) : null;
+
+            if (controllerParameter == null)
+                continue;
+
+            foreach (var layer in controller.layers)
+            {
+                var reached = new HashSet<AnimatorState>(FindStates(layer.stateMachine, parameter, controllerParameter.type, value));
+
+                foreach (var animatorState in AllStates(layer.stateMachine))
+                {
+                    if (animatorState.motion is BlendTree tree && tree.blendParameter == parameter)
+                        SampleBlendTree(tree, value, overrides, resolvePath, state, unsupported);
+                    else if (animatorState.timeParameterActive && animatorState.timeParameter == parameter
+                        && animatorState.motion is AnimationClip timeClip)
+                        ReadClips(new[] { Override(timeClip, overrides) }, resolvePath, state, unsupported, Mathf.Clamp01(value));
+                    else if (reached.Contains(animatorState))
+                    {
+                        var clips = new List<AnimationClip>();
+                        CollectClips(animatorState.motion, overrides, clips, unsupported);
+                        ReadClips(clips, resolvePath, state, unsupported);
+                    }
+                }
+            }
+        }
+
+        return state;
+    }
+
+    static void SampleBlendTree(BlendTree tree, float value, AnimatorOverrideController overrides, Func<string, Transform> resolvePath,
+        ToggleState state, ICollection<string> unsupported)
+    {
+        if (tree.blendType != BlendTreeType.Simple1D)
+        {
+            unsupported.Add("2D/direct blend trees");
+            return;
+        }
+
+        var children = tree.children.Where(c => c.motion != null).OrderBy(c => c.threshold).ToList();
+
+        if (children.Count == 0)
+            return;
+
+        // Find the two children around the value
+        var upper = children.FindIndex(c => c.threshold >= value);
+        var a = upper <= 0 ? children[0] : children[upper - 1];
+        var b = upper < 0 ? children[children.Count - 1] : children[upper];
+        var t = Mathf.Approximately(a.threshold, b.threshold) ? 0 : Mathf.Clamp01((value - a.threshold) / (b.threshold - a.threshold));
+
+        ToggleState Read(ChildMotion child)
+        {
+            var childState = new ToggleState();
+
+            if (child.motion is AnimationClip clip)
+                ReadClips(new[] { Override(clip, overrides) }, resolvePath, childState, unsupported);
+            else
+                unsupported.Add("nested blend trees");
+
+            return childState;
+        }
+
+        var stateA = Read(a);
+        var stateB = t > 0 ? Read(b) : stateA;
+
+        foreach (var key in stateA.Keys.Concat(stateB.Keys).Distinct().ToList())
+        {
+            if (stateA.Floats.ContainsKey(key) || stateB.Floats.ContainsKey(key))
+            {
+                var target = stateA.Floats.TryGetValue(key, out var fa) ? fa.target : stateB.Floats[key].target;
+                var valueA = stateA.Floats.TryGetValue(key, out fa) ? fa.value : target.RestValue;
+                var valueB = stateB.Floats.TryGetValue(key, out var fb) ? fb.value : target.RestValue;
+
+                state.Set(target, Mathf.Lerp(valueA, valueB, t));
+            }
+            else
+            {
+                // On/off properties switch at the midpoint
+                var source = t < 0.5f ? stateA : stateB;
+                var target = stateA.Bools.TryGetValue(key, out var ba) ? ba.target : stateB.Bools[key].target;
+
+                state.Set(target, source.Bools.TryGetValue(key, out var chosen) ? chosen.value : target.RestValue);
+            }
+        }
+    }
+
+    static AnimationClip Override(AnimationClip clip, AnimatorOverrideController overrides)
+    {
+        var overridden = overrides != null ? overrides[clip] : null;
+        return overridden != null ? overridden : clip;
+    }
+
+    static IEnumerable<AnimatorState> AllStates(AnimatorStateMachine machine)
+    {
+        foreach (var child in machine.states)
+            yield return child.state;
+
+        foreach (var child in machine.stateMachines)
+            foreach (var nested in AllStates(child.stateMachine))
+                yield return nested;
     }
 
     static IEnumerable<AnimatorState> FindStates(AnimatorStateMachine stateMachine, string parameter, AnimatorControllerParameterType type,
@@ -178,8 +301,7 @@ public static class AnimatorToggleAnalyzer
         switch (motion)
         {
             case AnimationClip clip:
-                var overridden = overrides != null ? overrides[clip] : null;
-                clips.Add(overridden != null ? overridden : clip);
+                clips.Add(Override(clip, overrides));
                 break;
 
             case BlendTree _:
