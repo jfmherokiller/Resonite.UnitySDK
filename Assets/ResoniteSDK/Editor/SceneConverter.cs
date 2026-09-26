@@ -47,12 +47,17 @@ public class SceneConverter : IConversionContext
     int _idPool;
     int _messageIndex;
 
+    // IDs allocated by a previous conversion state (e.g. before "Reset conversion state") still exist in the world, so every
+    // conversion state gets its own prefix. Otherwise the restarted counter hands out the same IDs again, which Resonite
+    // rejects with "Reference mismatch! Possible duplicate ID".
+    readonly string _conversionId = Guid.NewGuid().ToString("N").Substring(0, 8);
+
     public string AllocateId(IWorldElement o = null)
     {
         if (o is FrooxEngine.Slot)
             throw new ArgumentException($"Cannot allocate ID for a Slot object! This needs to be handled through transforms");
 
-        return $"Unity_{UniqueSessionId}_{o?.GetType().Name}_{_idPool++:X}";
+        return $"Unity_{UniqueSessionId}_{_conversionId}_{o?.GetType().Name}_{_idPool++:X}";
     }
 
     public string GetId(IWorldElement o)

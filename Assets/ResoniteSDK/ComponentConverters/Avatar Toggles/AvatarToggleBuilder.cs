@@ -167,11 +167,33 @@ public static class AvatarToggleBuilder
     /// <summary>
     /// Builds a menu item that selects the given index of a selector
     /// </summary>
-    public static void BuildSelectorOption(GameObject item, FrooxEngine.IField<int> selectorIndex, int index)
+    /// <param name="offIndex">If set, the item works like a toggle: pressing it while its index is selected selects this
+    /// index instead (like a VRChat toggle resetting its parameter when turned off)</param>
+    public static void BuildSelectorOption(GameObject item, FrooxEngine.IField<int> selectorIndex, int index, int? offIndex = null)
     {
-        var button = ConverterComponentHelper.GetOrAdd<ButtonValueSetIntWrapper>(item).Data;
-        button.TargetValue = selectorIndex;
-        button.SetValue = index;
+        // The item may have been built with the other kind of button before
+        var set = item.GetComponent<ButtonValueSetIntWrapper>();
+        var cycle = item.GetComponent<ButtonValueCycleIntWrapper>();
+
+        if (offIndex.HasValue && offIndex.Value != index)
+        {
+            ConverterComponentHelper.Remove(ref set);
+
+            // Cycles to the next value after the current one, or to the first if the current value isn't in the list
+            var button = ConverterComponentHelper.GetOrAdd<ButtonValueCycleIntWrapper>(item).Data;
+            button.TargetValue = selectorIndex;
+            button.Values.Clear();
+            button.Values.Add(index);
+            button.Values.Add(offIndex.Value);
+        }
+        else
+        {
+            ConverterComponentHelper.Remove(ref cycle);
+
+            var button = ConverterComponentHelper.GetOrAdd<ButtonValueSetIntWrapper>(item).Data;
+            button.TargetValue = selectorIndex;
+            button.SetValue = index;
+        }
     }
 
     /// <summary>
