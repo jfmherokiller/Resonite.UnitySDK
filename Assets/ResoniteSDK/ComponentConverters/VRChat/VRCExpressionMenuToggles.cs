@@ -209,7 +209,12 @@ public static class VRCExpressionMenuToggles
                     report.Info("puppettoggle:" + parameter, $"Menu parameter {parameter} is used by both a radial puppet and toggles, " +
                         $"only the puppet is converted.", owner);
             }
-            else if (definition.type == "Int" && options.Select(o => Mathf.RoundToInt(o.Value)).Distinct().Count() > 1)
+            // Float parameters are also used for mutually exclusive options (e.g. an outfit picker), typically
+            // because a 1D blend tree - which only accepts float parameters - selects between them. BuildSelector
+            // already handles this shape (distinct rounded values, one option active at a time); without this,
+            // every option past the first only gets a link to the first option's own toggle.
+            else if ((definition.type == "Int" || definition.type == "Float")
+                && options.Select(o => Mathf.RoundToInt(o.Value)).Distinct().Count() > 1)
                 BuildSelector(owner, source, controllers, parameter, definition.defaultValue, options, claimed, unsupported,
                     context, report, nextItem, nextSelector);
             else
@@ -329,16 +334,14 @@ public static class VRCExpressionMenuToggles
         }
     }
 
+    // SampleFloat also covers everything the simpler FindClips/ReadClips pair does (transitions gated on the
+    // parameter's value), plus states whose motion depends on the parameter directly - a 1D blend tree blended
+    // by it, or motion time driven by it. Toggles/selectors built from a Button-type control sharing a Float
+    // parameter with a blend tree (common for outfit-swap setups) only work through this path, not FindClips,
+    // since such states are often unconditionally active rather than reached through a matching transition.
     static ToggleState ReadState(List<RuntimeAnimatorController> controllers, ExpressionMenuSource source, string parameter, float value,
-        HashSet<string> unsupported)
-    {
-        var state = new ToggleState();
-        var clips = AnimatorToggleAnalyzer.FindClips(controllers, parameter, value, unsupported);
-
-        AnimatorToggleAnalyzer.ReadClips(clips, source.ResolvePath, state, unsupported);
-
-        return state;
-    }
+        HashSet<string> unsupported) =>
+        AnimatorToggleAnalyzer.SampleFloat(controllers, parameter, value, source.ResolvePath, unsupported);
 
     /// <summary>
     /// Removes properties already driven by previous toggles from the states and claims the rest
