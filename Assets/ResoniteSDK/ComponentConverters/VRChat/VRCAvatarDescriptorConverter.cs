@@ -135,8 +135,11 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
         var assigner = ConverterComponentHelper.GetOrAdd<FrooxEngine.CommonAvatar.AvatarVoiceSourceAssignerWrapper>(Visemes);
         var driver = ConverterComponentHelper.GetOrAdd<FrooxEngine.DirectVisemeDriverWrapper>(Visemes);
 
-        // Everything on the analyzer stays at defaults - the source is assigned when the avatar is equipped
-        ResoniteMemberFilter.Set(analyzer);
+        // Everything on the analyzer stays at defaults - the source is assigned when the avatar is equipped.
+        // "Source" must still be included (even though we don't set its value) because the assigner below
+        // references it by ID - filtering it out entirely leaves that reference dangling and Resonite can't
+        // resolve it.
+        ResoniteMemberFilter.Set(analyzer, "Source");
 
         // When the avatar is equipped, this will feed the user's voice into the analyzer
         assigner.Data.TargetReference = analyzer.Data.Source_Element.Member;

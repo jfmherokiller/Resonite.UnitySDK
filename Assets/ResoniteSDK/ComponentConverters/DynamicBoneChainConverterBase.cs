@@ -102,10 +102,10 @@ public abstract class DynamicBoneChainConverterBase : ResoniteSingleComponentCon
         Assign(settings.MaxStretchRatio, v => chain.MaxStretchRatio = v, "MaxStretchRatio", members);
         Assign(settings.BaseBoneRadius, v => chain.BaseBoneRadius = v, "BaseBoneRadius", members);
 
-        // Bones have internal drives for the bone transforms, which must not be overwritten
+        // Bones' _posDrive/_rotDrive are only linked by DynamicBoneChain.Bone.Assign() (Resonite doesn't link them
+        // automatically on creation the way a component links its own internal drives). SetupBones links them
+        // explicitly below - without that link Bone.IsValid is permanently false and the chain never simulates.
         var filter = ResoniteMemberFilter.Set(Binding, members.ToArray());
-        filter.StripInternalFromLists.Add("Bones");
-        filter.StripFromListElements.Add("GrabOverride");
 
         SetupBones(chain, settings);
         SetupColliders(chain, settings.Colliders, context);
@@ -125,7 +125,14 @@ public abstract class DynamicBoneChainConverterBase : ResoniteSingleComponentCon
         var bones = new List<(Transform bone, int depth)>();
 
         foreach (var root in settings.Roots.Where(r => r != null).Distinct())
+        {
+            // The root itself must be bones[0]: Resonite's DynamicBoneChain always treats the first
+            // list entry as the fixed anchor of the whole tree (EnsureValidData: _data[0].parentIndex = -1).
+            // Omitting it (as if only descendants were simulated) leaves single-segment chains - e.g. an
+            // ear with no children - with an empty Bones list, which never simulates at all.
+            bones.Add((root, 0));
             CollectBones(root, 0, settings.Ignored, bones);
+        }
 
         var maxDepth = bones.Count > 0 ? bones.Max(b => b.depth) : 1;
         var radiusCurve = settings.RadiusCurve != null && settings.RadiusCurve.length > 0 ? settings.RadiusCurve : null;
@@ -140,8 +147,11 @@ public abstract class DynamicBoneChainConverterBase : ResoniteSingleComponentCon
             element.OrigPosition = bone.localPosition;
             element.OrigRotation = bone.localRotation;
             element.Collide = true;
+            element._posDrive = new SlotPositionField(bone);
+            element._rotDrive = new SlotRotationField(bone);
 
-            var normalizedDepth = maxDepth > 1 ? (bones[i].depth - 1) / (float)(maxDepth - 1) : 0f;
+            // Depths now start at 0 (the root itself), so normalize directly against maxDepth.
+            var normalizedDepth = maxDepth > 0 ? bones[i].depth / (float)maxDepth : 0f;
             element.RadiusModifier = radiusCurve != null ? radiusCurve.Evaluate(normalizedDepth) : 1f;
         }
 
