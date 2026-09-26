@@ -273,7 +273,8 @@ public static class VRCExpressionMenuToggles
         // values closer together than 1 apart collided into the same rounded index, and worse, that index was
         // then used as the literal value to sample the animator with instead of the real value it stood for -
         // silently reading whichever unrelated state happens to sit at that integer position.
-        var distinctValues = options.Select(o => o.Value).Append(defaultValue).Distinct().OrderBy(v => v).ToList();
+        // VRChat toggles reset their parameter to 0 when turned off, so 0 (e.g. no outfit piece) is always a state too
+        var distinctValues = options.Select(o => o.Value).Append(defaultValue).Append(0f).Distinct().OrderBy(v => v).ToList();
 
         if (distinctValues.Count > MAX_SELECTOR_INDEX + 1)
         {
@@ -285,6 +286,7 @@ public static class VRCExpressionMenuToggles
         int IndexOf(float value) => distinctValues.FindIndex(v => Mathf.Approximately(v, value));
 
         var defaultIndex = IndexOf(defaultValue);
+        var offIndex = IndexOf(0);
 
         // State for each distinct value, read from the value itself (not its index).
         var states = distinctValues.Select(value => ReadState(controllers, source, parameter, value, unsupported)).ToList();
@@ -300,12 +302,14 @@ public static class VRCExpressionMenuToggles
         var selector = nextSelector($"[Resonite] Selector {parameter}");
         var indexField = AvatarToggleBuilder.BuildSelector(selector, defaultIndex, states, context);
 
-        // Options appearing in multiple places get an item in each of them
+        // Options appearing in multiple places get an item in each of them. Like in VRChat, each option works as a toggle:
+        // pressing it while it's active turns it off, resetting the parameter to 0.
         foreach (var option in options)
-            AvatarToggleBuilder.BuildSelectorOption(nextItem(option.Folders, option.Label, "Option"), indexField, IndexOf(option.Value));
+            AvatarToggleBuilder.BuildSelectorOption(nextItem(option.Folders, option.Label, "Option"), indexField,
+                IndexOf(option.Value), offIndex);
 
-        // In VRChat, pressing the active option again resets the parameter. Add an item for that instead.
-        if (!options.Any(o => Mathf.Approximately(o.Value, defaultValue)))
+        // The default value can't be reached through the options otherwise (VRChat only restores it on reset)
+        if (!Mathf.Approximately(defaultValue, 0) && !options.Any(o => Mathf.Approximately(o.Value, defaultValue)))
             AvatarToggleBuilder.BuildSelectorOption(nextItem(options[0].Folders, $"{parameter}: Default", "Option"), indexField, defaultIndex);
     }
 
