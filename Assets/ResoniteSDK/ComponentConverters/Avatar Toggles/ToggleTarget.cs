@@ -64,6 +64,31 @@ public class RendererEnabledTarget : ToggleTarget<bool>
     }
 }
 
+/// <summary>
+/// The Enabled state of a converted DynamicBoneChain (PhysBone / legacy Dynamic Bone), identified by its
+/// source component (the VRCPhysBone or DynamicBone, whose converter owns the DynamicBoneChainWrapper).
+/// </summary>
+public class DynamicBoneChainEnabledTarget : ToggleTarget<bool>
+{
+    public readonly Component Source;
+
+    public DynamicBoneChainEnabledTarget(Component source) => Source = source;
+
+    public override string Key => $"dynamicbonechain:{Source.GetInstanceID()}";
+    public override bool RestValue => true;
+
+    public override void ResolveField(IConversionContext context, Action<FrooxEngine.IField<bool>> onResolved)
+    {
+        context.RunOnConverted(Source, () =>
+        {
+            var wrapper = Source.GetComponent<FrooxEngine.DynamicBoneChainWrapper>();
+
+            if (wrapper != null)
+                onResolved(wrapper.Data.Enabled_Element.Member);
+        });
+    }
+}
+
 public class BlendShapeTarget : ToggleTarget<float>
 {
     public readonly SkinnedMeshRenderer Renderer;
