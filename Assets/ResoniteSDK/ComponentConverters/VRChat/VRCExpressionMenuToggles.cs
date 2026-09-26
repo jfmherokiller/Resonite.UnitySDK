@@ -266,21 +266,28 @@ public static class VRCExpressionMenuToggles
         IConversionContext context, ConversionReporter report, Func<string[], string, string, GameObject> nextItem,
         Func<string, GameObject> nextSelector)
     {
-        var defaultIndex = Mathf.RoundToInt(defaultValue);
-        var indices = options.Select(o => Mathf.RoundToInt(o.Value)).Append(defaultIndex).ToList();
+        // The selector's index is only an internal label for Resonite's own toggle wiring, not the original
+        // VRChat parameter value, so distinct values get sequential indices directly rather than rounding them
+        // to an int and using that as the index. Rounding broke Float parameters with fractional thresholds
+        // (e.g. a blend tree using 0.5 as one option's value and also the parameter's default): two distinct
+        // values closer together than 1 apart collided into the same rounded index, and worse, that index was
+        // then used as the literal value to sample the animator with instead of the real value it stood for -
+        // silently reading whichever unrelated state happens to sit at that integer position.
+        var distinctValues = options.Select(o => o.Value).Append(defaultValue).Distinct().OrderBy(v => v).ToList();
 
-        if (indices.Min() < 0 || indices.Max() > MAX_SELECTOR_INDEX)
+        if (distinctValues.Count > MAX_SELECTOR_INDEX + 1)
         {
-            report.Warning("range:" + parameter, $"Menu parameter {parameter} uses values outside of 0...{MAX_SELECTOR_INDEX}, " +
-                $"which isn't supported.", owner);
+            report.Warning("range:" + parameter, $"Menu parameter {parameter} has more than {MAX_SELECTOR_INDEX + 1} distinct " +
+                $"values, which isn't supported.", owner);
             return;
         }
 
-        // State for each index. Only the used ones are read, the rest stay at rest values.
-        var states = Enumerable.Range(0, indices.Max() + 1).Select(_ => new ToggleState()).ToList();
+        int IndexOf(float value) => distinctValues.FindIndex(v => Mathf.Approximately(v, value));
 
-        foreach (var index in indices.Distinct())
-            states[index] = ReadState(controllers, source, parameter, index, unsupported);
+        var defaultIndex = IndexOf(defaultValue);
+
+        // State for each distinct value, read from the value itself (not its index).
+        var states = distinctValues.Select(value => ReadState(controllers, source, parameter, value, unsupported)).ToList();
 
         Claim(claimed, parameter, report, owner, states.ToArray());
 
@@ -295,10 +302,10 @@ public static class VRCExpressionMenuToggles
 
         // Options appearing in multiple places get an item in each of them
         foreach (var option in options)
-            AvatarToggleBuilder.BuildSelectorOption(nextItem(option.Folders, option.Label, "Option"), indexField, Mathf.RoundToInt(option.Value));
+            AvatarToggleBuilder.BuildSelectorOption(nextItem(option.Folders, option.Label, "Option"), indexField, IndexOf(option.Value));
 
         // In VRChat, pressing the active option again resets the parameter. Add an item for that instead.
-        if (!options.Any(o => Mathf.RoundToInt(o.Value) == defaultIndex))
+        if (!options.Any(o => Mathf.Approximately(o.Value, defaultValue)))
             AvatarToggleBuilder.BuildSelectorOption(nextItem(options[0].Folders, $"{parameter}: Default", "Option"), indexField, defaultIndex);
     }
 
