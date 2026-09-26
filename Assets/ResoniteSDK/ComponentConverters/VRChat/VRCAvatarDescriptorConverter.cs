@@ -51,7 +51,11 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
     [Tooltip("Convert the expression menu toggles into Resonite context menu toggles.")]
     public bool ConvertExpressionMenu = true;
 
+    [Tooltip("Add a \"Disable PhysBones\" avatar toggle covering every VRC PhysBone / Dynamic Bone on the avatar.")]
+    public bool ConvertPhysBoneDisableToggle = true;
+
     public GameObject Visemes;
+    public GameObject PhysBonesToggle;
     public List<GameObject> MenuItems = new List<GameObject>();
     public List<GameObject> MenuSelectors = new List<GameObject>();
 
@@ -70,6 +74,11 @@ public class VRCAvatarDescriptorConverter : ResoniteComponentConverter<Component
             SetupVisemes(target, context);
         else
             GeneratedObjectHelper.Destroy(ref Visemes);
+
+        if (ConvertPhysBoneDisableToggle)
+            PhysBoneDisableToggle.Apply(target.transform, ref PhysBonesToggle, context);
+        else
+            GeneratedObjectHelper.DestroyWithEmptyParents(ref PhysBonesToggle);
 
 #if UNITY_EDITOR
         var menu = ConvertExpressionMenu ? VRCExpressionMenuToggles.FromDescriptor(target) : null;
