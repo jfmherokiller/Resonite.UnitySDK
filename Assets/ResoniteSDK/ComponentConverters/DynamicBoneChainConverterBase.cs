@@ -61,6 +61,23 @@ public class DynamicBoneChainSettings
 /// </summary>
 public abstract class DynamicBoneChainConverterBase : ResoniteSingleComponentConverter<Component, FrooxEngine.DynamicBoneChainWrapper>
 {
+    /// <summary>
+    /// A literal zero radius (a source PhysBone/Dynamic Bone whose radius was simply never configured) leaves the
+    /// chain with no collision presence at all - even a small swing then visibly clips straight through nearby
+    /// geometry (e.g. a coat cuff going through the wearer's own arm), since there's no thickness to visually
+    /// "land on" the surface. VRChat's own engine almost certainly never simulates with a literal zero either.
+    /// Matches Resonite's own default (DynamicBoneChain.BaseBoneRadius's value on creation), rather than inventing
+    /// an arbitrary constant.
+    /// </summary>
+    const float DEFAULT_BASE_BONE_RADIUS = 0.025f;
+
+    /// <summary>
+    /// Only an exact (or float-approximate) zero gets floored - a genuinely tiny but nonzero radius (e.g. a toe
+    /// bone deliberately set to 0.0005 for subtle motion) is left untouched.
+    /// </summary>
+    protected static float ApplyRadiusFloor(float rawRadius, float scaledRadius) =>
+        Mathf.Approximately(rawRadius, 0f) ? DEFAULT_BASE_BONE_RADIUS : scaledRadius;
+
     HashSet<Component> _pendingColliders = new HashSet<Component>();
 
     protected readonly ConversionReporter Report = new ConversionReporter();
@@ -73,14 +90,23 @@ public abstract class DynamicBoneChainConverterBase : ResoniteSingleComponentCon
         var chain = Binding.Data;
 
         // Only what's set is sent, everything else is left at Resonite's defaults
-        var members = new List<string> { "Inertia", "Damping", "Elasticity", "Bones", "StaticColliders" };
+        var members = new List<string> { "Inertia", "InertiaForce", "Damping", "Elasticity", "Bones", "StaticColliders" };
 
         chain.Enabled = settings.Enabled;
 
         // HEURISTICS! These are not physically equivalent, but give similar behavior in common cases.
         chain.Elasticity = Mathf.Lerp(10f, 300f, Mathf.Clamp01(settings.Pull));
         chain.Damping = Mathf.Lerp(10f, 1f, Mathf.Clamp01(settings.Momentum));
-        chain.Inertia = 0.2f * (1f - Mathf.Clamp01(settings.Immobile));
+
+        // Immobile (VRChat: "movement of the object doesn't affect the bones") has to scale down *both* of
+        // Resonite's root-motion channels. Inertia only feeds a position carry-over each frame; InertiaForce
+        // separately injects the root's velocity straight into every bone's acceleration term (see
+        // DynamicBoneChain.Simulate). Leaving InertiaForce at its default (2, fairly strong) meant a bone with
+        // Immobile=1 still reacted heavily to root motion - e.g. toe/foot deform bones jiggling on every step
+        // despite Inertia correctly reading 0.
+        var mobility = 1f - Mathf.Clamp01(settings.Immobile);
+        chain.Inertia = 0.2f * mobility;
+        chain.InertiaForce = 2f * mobility;
 
         if (settings.Stiffness.HasValue)
         {

@@ -14,6 +14,8 @@ public class VRCPhysBoneConverter : DynamicBoneChainConverterBase
         if (root == null)
             root = target.transform;
 
+        var rawRadius = ReflectionAccessor.Get(target, "radius", 0f);
+
         var settings = new DynamicBoneChainSettings()
         {
             Enabled = !(target is Behaviour behaviour) || behaviour.enabled,
@@ -42,8 +44,8 @@ public class VRCPhysBoneConverter : DynamicBoneChainConverterBase
             MaxStretchRatio = 1f + Mathf.Max(0, ReflectionAccessor.Get(target, "maxStretch", 0f)),
 
             // PhysBone radius is in the root transform's space, while the chain radius is relative to the chain's slot
-            BaseBoneRadius = ReflectionAccessor.Get(target, "radius", 0f) * MaxAxis(root.lossyScale)
-                / Mathf.Max(1e-6f, MaxAxis(target.transform.lossyScale)),
+            BaseBoneRadius = ApplyRadiusFloor(rawRadius, rawRadius * MaxAxis(root.lossyScale)
+                / Mathf.Max(1e-6f, MaxAxis(target.transform.lossyScale))),
         };
 
         settings.Roots.Add(root);
