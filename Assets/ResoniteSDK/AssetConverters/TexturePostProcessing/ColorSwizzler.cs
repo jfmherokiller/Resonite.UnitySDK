@@ -1,3 +1,4 @@
+#if UNITY_EDITOR // TextureImporterSwizzle is editor-only
 using System;
 using FrooxEngine;
 using UnityEngine;
@@ -83,3 +84,5 @@ public class ColorSwizzler : AssetMessagePostProcessor
         }
     }
 }
+
+#endif

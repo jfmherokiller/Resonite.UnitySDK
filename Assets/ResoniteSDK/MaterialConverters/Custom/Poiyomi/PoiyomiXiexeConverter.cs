@@ -1,7 +1,6 @@
 using System;
 using FrooxEngine;
 using ResoniteLink;
-using UnityEditor;
 using UnityEngine;
 
 // This converter is a prototype meant to convert materials using
@@ -203,12 +202,16 @@ public class PoiyomiXiexeConverter
             return null;
         }
 
+#if UNITY_EDITOR
         AssetCache.MetallicSwizzler.Update(
             PoiyomiColorChannelMethods.SwizzleFromChannel(metallic, invertMetallic),
             PoiyomiColorChannelMethods.SwizzleFromChannel(smoothness, invertSmoothness),
             PoiyomiColorChannelMethods.SwizzleFromChannel(reflection, invertReflection),
             PoiyomiColorChannelMethods.SwizzleFromChannel(specular, invertSpecular));
         return AssetCache.MetallicSwizzler;
+#else
+        return null;
+#endif
     }
 
     private void UpdateEmission()
@@ -577,8 +580,7 @@ public class PoiyomiXiexeConverter
 
     private UnityEngine.Texture SkinShadowRamp()
     {
-        string toonSkinSrPath = AssetDatabase.GUIDToAssetPath(TOON_SKIN_SR_GUID);
-        return AssetDatabase.LoadAssetAtPath(toonSkinSrPath, typeof(Texture)) as Texture;
+        return EditorAssetUtility.LoadAssetByGuid<Texture>(TOON_SKIN_SR_GUID);
     }
 
     private void UpdateShadowRim()

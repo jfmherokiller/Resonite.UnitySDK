@@ -1,7 +1,6 @@
 using System;
 using FrooxEngine;
 using UnityEngine;
-using UnityEditor;
 
 public class LilToonXiexeConverter
 {
@@ -182,7 +181,7 @@ public class LilToonXiexeConverter
             return defaultData;
         }
 
-        if (AssetCache.MainTexture != null && AssetCache.MainTexture != bakedTexture && !EditorUtility.IsPersistent(AssetCache.MainTexture))
+        if (AssetCache.MainTexture != null && AssetCache.MainTexture != bakedTexture && !EditorAssetUtility.IsPersistent(AssetCache.MainTexture))
         {
             UnityEngine.Object.DestroyImmediate(AssetCache.MainTexture);
         }
@@ -461,7 +460,7 @@ public class LilToonXiexeConverter
             }
         }
 
-        if (AssetCache.EmissionMap != null && AssetCache.EmissionMap != bakedTexture && !EditorUtility.IsPersistent(AssetCache.EmissionMap))
+        if (AssetCache.EmissionMap != null && AssetCache.EmissionMap != bakedTexture && !EditorAssetUtility.IsPersistent(AssetCache.EmissionMap))
         {
             UnityEngine.Object.DestroyImmediate(AssetCache.EmissionMap);
         }
@@ -649,7 +648,7 @@ public class LilToonXiexeConverter
             }
         }
 
-        if (AssetCache.ShadowRampTexture != null && AssetCache.ShadowRampTexture != bakedRamp && !EditorUtility.IsPersistent(AssetCache.ShadowRampTexture))
+        if (AssetCache.ShadowRampTexture != null && AssetCache.ShadowRampTexture != bakedRamp && !EditorAssetUtility.IsPersistent(AssetCache.ShadowRampTexture))
         {
             UnityEngine.Object.DestroyImmediate(AssetCache.ShadowRampTexture);
         }

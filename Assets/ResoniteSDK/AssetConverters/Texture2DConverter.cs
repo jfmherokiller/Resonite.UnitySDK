@@ -4,7 +4,6 @@ using ResoniteLink;
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using UnityEditor;
 using UnityEngine;
 
 public class Texture2DConverter : AssetConverter<StaticTexture2DWrapper, StaticTexture2D, UnityEngine.Texture2D, FrooxEngine.Texture2D>
@@ -58,12 +57,7 @@ public class Texture2DConverter : AssetConverter<StaticTexture2DWrapper, StaticT
 
         _readable = Source.isReadable;
 
-        var assetPath = AssetDatabase.GetAssetPath(Source);
-
-        if (!string.IsNullOrWhiteSpace(assetPath) && AssetImporter.GetAtPath(assetPath) is TextureImporter textureImporter)
-            _maxSize = textureImporter.maxTextureSize;
-        else
-            _maxSize = null;
+        _maxSize = EditorAssetUtility.GetTextureMaxSize(Source);
 
         return ConvertTexture2D(Source, PostProcessor != null);
     }
@@ -117,7 +111,7 @@ public class Texture2DConverter : AssetConverter<StaticTexture2DWrapper, StaticT
         {
             // First try to import it as a file. This is easiest and will preserve most data
             // Rather than just extracting the raw pixels
-            var assetPath = AssetDatabase.GetAssetPath(texture);
+            var assetPath = EditorAssetUtility.GetAssetPath(texture);
 
             if (!string.IsNullOrWhiteSpace(assetPath))
             {

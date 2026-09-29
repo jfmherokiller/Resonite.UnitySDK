@@ -1,4 +1,6 @@
+#if UNITY_EDITOR
 using UnityEditor;
+#endif
 
 public enum PoiyomiColorChannel
 {
@@ -9,6 +11,7 @@ public enum PoiyomiColorChannel
     White
 }
 
+#if UNITY_EDITOR
 public static class PoiyomiColorChannelMethods
 {
     public static TextureImporterSwizzle SwizzleFromChannel(PoiyomiColorChannel channel, bool invert)
@@ -68,3 +71,4 @@ public static class PoiyomiColorChannelMethods
         }
     }
 }
+#endif

@@ -3,7 +3,6 @@ using ResoniteLink;
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using UnityEditor;
 using UnityEngine;
 
 public class CubemapConverter : AssetConverter<StaticCubemapWrapper, StaticCubemap, UnityEngine.Cubemap, FrooxEngine.Cubemap>
@@ -48,18 +47,19 @@ public class CubemapConverter : AssetConverter<StaticCubemapWrapper, StaticCubem
     {
         if(!cubemap.isReadable)
         {
-            string path = AssetDatabase.GetAssetPath(cubemap);
+#if UNITY_EDITOR
+            string path = UnityEditor.AssetDatabase.GetAssetPath(cubemap);
 
-            var importer = AssetImporter.GetAtPath(path);
+            var importer = UnityEditor.AssetImporter.GetAtPath(path);
 
             switch (importer)
             {
-                case TextureImporter textureImporter:
+                case UnityEditor.TextureImporter textureImporter:
                     textureImporter.isReadable = true;
                     textureImporter.SaveAndReimport();
                     break;
 
-                case AssetImporter assetImporter:
+                case UnityEditor.AssetImporter assetImporter:
                     // This is likely a legacy cubemap. We can't mark this as isReadable to my knowledge, so we have to read it
                     var readableCubemap = new UnityEngine.Cubemap(cubemap.width, cubemap.format, cubemap.mipmapCount > 1, true);
 
@@ -71,7 +71,10 @@ public class CubemapConverter : AssetConverter<StaticCubemapWrapper, StaticCubem
 
                 default:
                     throw new NotImplementedException($"Unsupported importer type: {importer?.GetType().FullName}");
-            }            
+            }
+#else
+            throw new NotSupportedException($"Unreadable cubemap {cubemap} can only be converted in the editor");
+#endif
         }
 
         var hasMipMaps = cubemap.mipmapCount > 1;
@@ -82,7 +85,7 @@ public class CubemapConverter : AssetConverter<StaticCubemapWrapper, StaticCubem
         // exactly as they are in Unity
         if (!hasMipMaps)
         {
-            var assetPath = AssetDatabase.GetAssetPath(cubemap);
+            var assetPath = EditorAssetUtility.GetAssetPath(cubemap);
 
             if (!string.IsNullOrWhiteSpace(assetPath))
             {

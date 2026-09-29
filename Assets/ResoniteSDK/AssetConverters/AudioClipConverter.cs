@@ -3,7 +3,6 @@ using ResoniteLink;
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using UnityEditor;
 using UnityEngine;
 
 public class AudioClipConverter : AssetConverter<StaticAudioClipWrapper, StaticAudioClip, UnityEngine.AudioClip, FrooxEngine.AudioClip>
@@ -41,7 +40,7 @@ public class AudioClipConverter : AssetConverter<StaticAudioClipWrapper, StaticA
         {
             // First try to import it as a file. This is easiest and will preserve most data
             // Rather than just extracting the raw pixels
-            var assetPath = AssetDatabase.GetAssetPath(audioClip);
+            var assetPath = EditorAssetUtility.GetAssetPath(audioClip);
 
             if (!string.IsNullOrWhiteSpace(assetPath))
             {
@@ -69,12 +68,13 @@ public class AudioClipConverter : AssetConverter<StaticAudioClipWrapper, StaticA
         // Convert them temporarily to decompressed first, so we can access the data and extract it
         if (audioClip.loadType == AudioClipLoadType.Streaming)
         {
-            string path = AssetDatabase.GetAssetPath(audioClip);
-            var importer = AssetImporter.GetAtPath(path);
+#if UNITY_EDITOR
+            string path = UnityEditor.AssetDatabase.GetAssetPath(audioClip);
+            var importer = UnityEditor.AssetImporter.GetAtPath(path);
 
             switch(importer)
             {
-                case AudioImporter audioImporter:
+                case UnityEditor.AudioImporter audioImporter:
                     var settings = audioImporter.defaultSampleSettings;
                     settings.loadType = AudioClipLoadType.DecompressOnLoad;
                     audioImporter.defaultSampleSettings = settings;
@@ -94,6 +94,9 @@ public class AudioClipConverter : AssetConverter<StaticAudioClipWrapper, StaticA
                 default:
                     throw new NotImplementedException($"Unsupported importer type: {importer?.GetType().FullName}");
             }
+#else
+            throw new NotSupportedException($"Streaming audio clip {audioClip} can only be converted in the editor");
+#endif
         }
 
         if (!audioClip.GetData(dataArray, 0))
