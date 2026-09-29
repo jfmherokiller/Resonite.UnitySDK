@@ -18,6 +18,7 @@ public class DynamicBoneConverter : DynamicBoneChainConverterBase
     protected override DynamicBoneChainSettings ReadSettings(Component target)
     {
         var gravity = ReflectionAccessor.Get(target, "m_Gravity", Vector3.zero) + ReflectionAccessor.Get(target, "m_Force", Vector3.zero);
+        var rawRadius = ReflectionAccessor.Get(target, "m_Radius", 0f);
 
         var settings = new DynamicBoneChainSettings()
         {
@@ -40,7 +41,7 @@ public class DynamicBoneConverter : DynamicBoneChainConverterBase
             MaxStretchRatio = 1f,
 
             // Dynamic Bone radius is scaled by the component's transform, same as the chain's slot
-            BaseBoneRadius = ReflectionAccessor.Get(target, "m_Radius", 0f),
+            BaseBoneRadius = ApplyRadiusFloor(rawRadius, rawRadius),
         };
 
         // Newer versions support multiple roots

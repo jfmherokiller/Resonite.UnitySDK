@@ -24,10 +24,12 @@ using UnityEngine;
 public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActiveOverride
 {
     public List<FrooxEngine.VirtualParentWrapper> Links = new List<FrooxEngine.VirtualParentWrapper>();
+    public List<ObjectStateOverride> ObjectStates = new List<ObjectStateOverride>();
 
     // Generated helper objects (not saved with the scene)
     public GameObject BlendShapeLinkObject;
     public List<GameObject> ToggleObjects = new List<GameObject>();
+    public List<GameObject> ApplyDuringUploadObjects = new List<GameObject>();
     public List<GameObject> MenuItems = new List<GameObject>();
     public List<GameObject> MenuSelectors = new List<GameObject>();
 
@@ -35,6 +37,7 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
 
     // Evaluated on demand, so it's correct even when the slot is updated without the converter running
     public bool ForceSlotInactive => Target != null && GetFeatures(Target).Any(f => f.GetType().Name == "DeleteDuringUpload");
+    public bool ForceSlotActive => false;
 
     struct LinkRequest
     {
@@ -50,6 +53,8 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
         var blendShapeLinks = new List<object>();
         var toggles = new List<object>();
         var fullControllers = new List<object>();
+        var objectStates = new List<(GameObject obj, bool active)>();
+        var applyDuringUploads = new List<object>();
 
         foreach (var feature in GetFeatures(target))
         {
@@ -79,6 +84,14 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
                     fullControllers.Add(feature);
                     break;
 
+                case "ObjectState":
+                    ReadObjectState(feature, objectStates);
+                    break;
+
+                case "ApplyDuringUpload":
+                    applyDuringUploads.Add(feature);
+                    break;
+
                 default:
                     _report.Info(feature.GetType().Name, $"VRCFury feature {feature.GetType().Name} on {target.name} is not " +
                         $"converted to Resonite.", target);
@@ -87,9 +100,11 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
         }
 
         ApplyLinks(links);
+        ApplyObjectStates(objectStates);
 
         VRCFuryBlendShapeLink.Apply(target, blendShapeLinks, ref BlendShapeLinkObject, context);
         ApplyToggles(target, toggles, context);
+        ApplyApplyDuringUploads(target, applyDuringUploads, context);
 
 #if UNITY_EDITOR
         // Only the menu toggles of full controllers are converted, the rest of the controller isn't
@@ -121,6 +136,30 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
             var toggleObject = ToggleObjects[i];
             GeneratedObjectHelper.DestroyWithEmptyParents(ref toggleObject);
             ToggleObjects.RemoveAt(i);
+        }
+    }
+
+    void ApplyApplyDuringUploads(Component target, List<object> features, IConversionContext context)
+    {
+        if (ApplyDuringUploadObjects == null)
+            ApplyDuringUploadObjects = new List<GameObject>();
+
+        while (ApplyDuringUploadObjects.Count < features.Count)
+            ApplyDuringUploadObjects.Add(null);
+
+        for (int i = 0; i < features.Count; i++)
+        {
+            var stateObject = ApplyDuringUploadObjects[i];
+            VRCFuryApplyDuringUpload.Apply(target, features[i], ref stateObject, context, _report);
+            ApplyDuringUploadObjects[i] = stateObject;
+        }
+
+        // Remove ones which no longer exist
+        for (int i = ApplyDuringUploadObjects.Count - 1; i >= features.Count; i--)
+        {
+            var stateObject = ApplyDuringUploadObjects[i];
+            GeneratedObjectHelper.DestroyWithEmptyParents(ref stateObject);
+            ApplyDuringUploadObjects.RemoveAt(i);
         }
     }
 
@@ -358,6 +397,56 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
             parent.LocalPosition = request.AlignPosition ? Vector3.zero : target.InverseTransformPoint(prop.position);
             parent.LocalRotation = request.AlignRotation ? Quaternion.identity : Quaternion.Inverse(target.rotation) * prop.rotation;
             parent.LocalScale = ConverterComponentHelper.SafeDivide(prop.lossyScale, target.lossyScale);
+        }
+    }
+
+    /// <summary>
+    /// ObjectState: forces an arbitrary object active or inactive, regardless of its own state in Unity. DELETE is
+    /// treated the same as DEACTIVATE - like VRCFury's own DeleteDuringUpload, the object is made inactive rather
+    /// than actually removed from the conversion.
+    /// </summary>
+    static void ReadObjectState(object feature, List<(GameObject obj, bool active)> objectStates)
+    {
+        foreach (var entry in ReflectionAccessor.GetList(feature, "states"))
+        {
+            var obj = ReflectionAccessor.GetObject<GameObject>(entry, "obj");
+
+            if (obj == null)
+                continue;
+
+            var action = ReflectionAccessor.GetEnumName(entry, "action", "ACTIVATE");
+
+            objectStates.Add((obj, action == "ACTIVATE"));
+        }
+    }
+
+    void ApplyObjectStates(List<(GameObject obj, bool active)> requests)
+    {
+        // Remove overrides for objects that are no longer targeted
+        var objs = new HashSet<GameObject>(requests.Select(r => r.obj));
+
+        for (int i = ObjectStates.Count - 1; i >= 0; i--)
+        {
+            if (ObjectStates[i] != null && objs.Contains(ObjectStates[i].gameObject))
+                continue;
+
+            if (ObjectStates[i] != null)
+                DestroyImmediate(ObjectStates[i]);
+
+            ObjectStates.RemoveAt(i);
+        }
+
+        foreach (var request in requests)
+        {
+            var overrideComponent = ObjectStates.FirstOrDefault(o => o.gameObject == request.obj);
+
+            if (overrideComponent == null)
+            {
+                overrideComponent = request.obj.AddComponent<ObjectStateOverride>();
+                ObjectStates.Add(overrideComponent);
+            }
+
+            overrideComponent.Active = request.active;
         }
     }
 

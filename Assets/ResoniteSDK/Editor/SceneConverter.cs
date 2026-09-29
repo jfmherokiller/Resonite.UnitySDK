@@ -405,6 +405,9 @@ public class SceneConverter : IConversionContext
 
     void UpdateComponentConversions(Transform root)
     {
+        if (ExcludedContent.IsExcluded(root))
+            return;
+
         var components = new List<UnityEngine.Component>();
 
         root.GetComponents<UnityEngine.Component>(components);
@@ -490,6 +493,9 @@ public class SceneConverter : IConversionContext
 
     void ConvertHierarchy(Transform root, List<DataModelOperation> messages)
     {
+        if (ExcludedContent.IsExcluded(root))
+            return;
+
         Convert(root, messages);
         ConvertComponents(root, messages);
 
@@ -566,13 +572,22 @@ public class SceneConverter : IConversionContext
         else
             data.Tag.Value = transform.tag;
 
-        data.IsActive.Value = transform.gameObject.activeSelf && !IsForcedInactive(transform);
+        data.IsActive.Value = (transform.gameObject.activeSelf || IsForcedActive(transform)) && !IsForcedInactive(transform);
     }
 
     static bool IsForcedInactive(Transform transform)
     {
         foreach (var o in transform.GetComponents<ISlotActiveOverride>())
             if (o.ForceSlotInactive)
+                return true;
+
+        return false;
+    }
+
+    static bool IsForcedActive(Transform transform)
+    {
+        foreach (var o in transform.GetComponents<ISlotActiveOverride>())
+            if (o.ForceSlotActive)
                 return true;
 
         return false;
