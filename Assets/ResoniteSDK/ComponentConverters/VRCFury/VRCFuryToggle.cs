@@ -86,12 +86,14 @@ public static class VRCFuryToggle
                     CollectBlendShapes(avatarRoot, action, result);
                     break;
 
+#if UNITY_EDITOR
                 case "AnimationClipAction":
                     var clip = GetAnimationClip(action);
 
                     if (clip != null)
                         AnimatorToggleAnalyzer.ReadClips(new[] { clip }, avatarRoot, result, unsupported);
                     break;
+#endif
 
                 default:
                     report.Warning(action.GetType().Name, $"VRCFury {label} uses {action.GetType().Name}, which isn't converted.", target);

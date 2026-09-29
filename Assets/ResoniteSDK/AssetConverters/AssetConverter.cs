@@ -2,7 +2,6 @@
 using ResoniteLink;
 using System;
 using System.Threading.Tasks;
-using UnityEditor;
 using UnityEngine;
 
 public abstract class AssetConverter : MonoBehaviour
@@ -103,7 +102,7 @@ public abstract class AssetConverter<TProvider, TUnity, TResonite> : AssetConver
 
     protected override ulong GetAssetTimestamp()
     {
-        var assetPath = AssetDatabase.GetAssetPath(Source);
+        var assetPath = EditorAssetUtility.GetAssetPath(Source);
 
         if (assetPath == "Library/unity default resources" ||
             assetPath == "Resources/unity_builtin_extra")
@@ -111,12 +110,12 @@ public abstract class AssetConverter<TProvider, TUnity, TResonite> : AssetConver
 
         if (!string.IsNullOrEmpty(assetPath))
         {
-            var importer = AssetImporter.GetAtPath(assetPath);
+            var timestamp = EditorAssetUtility.GetImporterTimestamp(assetPath);
 
-            if (importer == null)
+            if (timestamp == null)
                 throw new Exception($"Could not get importer for asset path: {assetPath}");
 
-            return importer.assetTimeStamp;
+            return timestamp.Value;
         }
         else
         {

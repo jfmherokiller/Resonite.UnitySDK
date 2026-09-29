@@ -1,6 +1,5 @@
 using FrooxEngine;
 using ResoniteLink;
-using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -155,11 +154,15 @@ public class PoiyomiPbsConverter
             return null;
         }
 
+#if UNITY_EDITOR
         AssetCache.MetallicSwizzler.Update(
             PoiyomiColorChannelMethods.SwizzleFromChannel(metallic, invertMetallic),
-            TextureImporterSwizzle.Zero,
-            TextureImporterSwizzle.Zero,
+            UnityEditor.TextureImporterSwizzle.Zero,
+            UnityEditor.TextureImporterSwizzle.Zero,
             PoiyomiColorChannelMethods.SwizzleFromChannel(smoothness, invertSmoothness));
         return AssetCache.MetallicSwizzler;
+#else
+        return null;
+#endif
     }
 }
