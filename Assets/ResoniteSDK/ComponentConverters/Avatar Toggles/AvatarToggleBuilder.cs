@@ -14,6 +14,9 @@ using UnityEngine;
 /// - Puppet: items set a float value, which maps to the value of each controlled property (<see cref="BuildPuppet"/>).
 ///   Resonite's context menu has no sliders, so the value is set in steps.
 ///
+/// Material slots (swaps and animated material properties) are driven with asset drivers / multiplexers, switching
+/// between the converted materials of each state.
+///
 /// Everything is generated as helper objects, which are not saved with the scene.
 /// </summary>
 public static class AvatarToggleBuilder
@@ -102,6 +105,21 @@ public static class AvatarToggleBuilder
             stateDriver.Drives.Add(driver.State_Element.Member);
         }
 
+        var materials = MaterialSlots(new[] { on, off });
+        var materialDrivers = EnsureCount<BooleanAssetDriverMaterialWrapper>(item, materials.Count);
+
+        for (int i = 0; i < materials.Count; i++)
+        {
+            var driver = materialDrivers[i].Data;
+            var target = materials[i];
+
+            driver.TrueTarget = GetMaterial(context, on.ResolveMaterial(target));
+            driver.FalseTarget = GetMaterial(context, off.ResolveMaterial(target));
+
+            target.ResolveSlot(context, slot => driver.Target_Element.Data = slot);
+            stateDriver.Drives.Add(driver.State_Element.Member);
+        }
+
         return stateDriver.Value_Element.Member;
     }
 
@@ -158,6 +176,23 @@ public static class AvatarToggleBuilder
                 multiplexer.Values.Add(state.Floats.TryGetValue(target.Key, out var value) ? value.value : target.RestValue);
 
             target.ResolveField(context, field => multiplexer.Target = field);
+            index.Drives.Add(multiplexer.Index_Element.Member);
+        }
+
+        var materials = MaterialSlots(states);
+        var materialMultiplexers = EnsureCount<AssetMultiplexerMaterialWrapper>(stateObject, materials.Count);
+
+        for (int i = 0; i < materials.Count; i++)
+        {
+            var multiplexer = materialMultiplexers[i].Data;
+            var target = materials[i];
+
+            multiplexer.Assets.Clear();
+
+            foreach (var state in states)
+                multiplexer.Assets.Add(GetMaterial(context, state.ResolveMaterial(target)));
+
+            target.ResolveSlot(context, slot => multiplexer.Target_Element.Data = slot);
             index.Drives.Add(multiplexer.Index_Element.Member);
         }
 
@@ -255,6 +290,35 @@ public static class AvatarToggleBuilder
             value.Drives.Add(driver.Progress_Element.Member);
         }
 
+        // Materials can't be interpolated: each sample's material is picked by index, stepping at the sample points
+        var materials = MaterialSlots(samples.Select(s => s.state));
+        var materialPickers = EnsureCount<ValueGradientDriverIntWrapper>(stateObject, materials.Count);
+        var materialMultiplexers = EnsureCount<AssetMultiplexerMaterialWrapper>(stateObject, materials.Count);
+
+        for (int i = 0; i < materials.Count; i++)
+        {
+            var picker = materialPickers[i].Data;
+            var multiplexer = materialMultiplexers[i].Data;
+            var target = materials[i];
+
+            picker.Interpolate = false;
+            picker.Points.Clear();
+            multiplexer.Assets.Clear();
+
+            for (int s = 0; s < samples.Count; s++)
+            {
+                var point = picker.Points.Add();
+                point.Position = samples[s].position;
+                point.Value = s;
+
+                multiplexer.Assets.Add(GetMaterial(context, samples[s].state.ResolveMaterial(target)));
+            }
+
+            picker.Target = multiplexer.Index_Element.Member;
+            target.ResolveSlot(context, slot => multiplexer.Target_Element.Data = slot);
+            value.Drives.Add(picker.Progress_Element.Member);
+        }
+
         return value.Value_Element.Member;
     }
 
@@ -294,6 +358,12 @@ public static class AvatarToggleBuilder
 
         item.Data.Label = label;
     }
+
+    static FrooxEngine.IAssetProvider<FrooxEngine.Material> GetMaterial(IConversionContext context, Material material) =>
+        material != null ? context.GetMaterial(material) : null;
+
+    static List<MaterialSlotTarget> MaterialSlots(IEnumerable<ToggleState> states) =>
+        states.SelectMany(s => s.Materials.Values).GroupBy(v => v.target.Key).Select(g => g.First().target).ToList();
 
     static List<T> EnsureCount<T>(GameObject obj, int count) where T : Component
     {

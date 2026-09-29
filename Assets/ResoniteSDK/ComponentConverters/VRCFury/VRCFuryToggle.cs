@@ -16,7 +16,8 @@ using UnityEngine;
 ///   component). Only object active state, renderer enabled and blendshapes are read from it, same as any other
 ///   clip - a clip that also animates e.g. a Transform or a third party component's field will get those specific
 ///   bindings reported as unsupported, but everything else still converts.
-/// Other actions (materials...) are reported.
+/// - Material swap / material property - drives the renderer's material slot, see <see cref="MaterialVariants"/>
+/// Other actions are reported.
 /// </summary>
 public static class VRCFuryToggle
 {
@@ -86,6 +87,14 @@ public static class VRCFuryToggle
                     CollectBlendShapes(avatarRoot, action, result);
                     break;
 
+                case "MaterialAction":
+                    ReadMaterialSwap(action, result);
+                    break;
+
+                case "MaterialPropertyAction":
+                    ReadMaterialProperty(avatarRoot, action, result, unsupported);
+                    break;
+
 #if UNITY_EDITOR
                 case "AnimationClipAction":
                     var clip = GetAnimationClip(action);
@@ -112,6 +121,95 @@ public static class VRCFuryToggle
         var clip = wrapper != null ? ReflectionAccessor.GetObject<AnimationClip>(wrapper, "objRef") : null;
 
         return clip != null ? clip : ReflectionAccessor.GetObject<Motion>(action, "motion") as AnimationClip;
+    }
+
+    /// <summary>
+    /// Material Swap: replaces one material slot of a renderer
+    /// </summary>
+    static void ReadMaterialSwap(object action, ToggleState result)
+    {
+        var renderer = ReflectionAccessor.GetObject<Renderer>(action, "renderer");
+        var slot = ReflectionAccessor.GetInt(action, "materialIndex");
+        var wrapper = ReflectionAccessor.GetRaw(action, "mat");
+        var material = wrapper != null ? ReflectionAccessor.GetObject<Material>(wrapper, "objRef") : null;
+
+        if (renderer != null && material != null && slot >= 0 && slot < renderer.sharedMaterials.Length)
+            result.SetMaterial(new MaterialSlotTarget(renderer, slot), material);
+    }
+
+    /// <summary>
+    /// Material Property: sets a shader property on one renderer or all renderers of the avatar, on every material
+    /// that has it. Values are applied the same way VRCFury builds its animation (per component for colors/vectors).
+    /// </summary>
+    static void ReadMaterialProperty(Transform avatarRoot, object action, ToggleState result, HashSet<string> unsupported)
+    {
+        var property = ReflectionAccessor.Get(action, "propertyName", "");
+
+        // VRCFury itself ignores single components of a bundle
+        if (string.IsNullOrEmpty(property) || property.Contains("."))
+            return;
+
+        var renderers = ReflectionAccessor.Get(action, "affectAllMeshes", false)
+            ? avatarRoot.GetComponentsInChildren<Renderer>(true)
+            : new[] { ReflectionAccessor.GetObject<GameObject>(action, "renderer2")?.GetComponent<Renderer>() };
+
+        var values = new List<(string suffix, float value)>();
+        var type = ReflectionAccessor.GetEnumName(action, "propertyType", "Float");
+
+        // LegacyAuto: detect from the materials like VRCFury does
+        if (type == "LegacyAuto")
+            type = DetectPropertyType(renderers, property);
+
+        switch (type)
+        {
+            case "Color":
+                var color = ReflectionAccessor.Get(action, "valueColor", Color.white);
+                values.AddRange(new[] { (".r", color.r), (".g", color.g), (".b", color.b), (".a", color.a) });
+                break;
+
+            case "Vector":
+            case "St":
+                var vector = ReflectionAccessor.Get(action, "valueVector", Vector4.zero);
+                values.AddRange(new[] { (".x", vector.x), (".y", vector.y), (".z", vector.z), (".w", vector.w) });
+                break;
+
+            default:
+                values.Add(("", ReflectionAccessor.Get(action, "value", 0f)));
+                break;
+        }
+
+        var applied = false;
+
+        foreach (var renderer in renderers)
+        {
+            if (renderer == null)
+                continue;
+
+            for (int slot = 0; slot < renderer.sharedMaterials.Length; slot++)
+                foreach (var (suffix, value) in values)
+                    if (MaterialVariants.Has(renderer.sharedMaterials[slot], property + suffix))
+                    {
+                        result.SetMaterialProperty(new MaterialSlotTarget(renderer, slot), property + suffix, value);
+                        applied = true;
+                    }
+        }
+
+        if (!applied)
+            unsupported.Add($"material property {property}");
+    }
+
+    static string DetectPropertyType(IEnumerable<Renderer> renderers, string property)
+    {
+        foreach (var material in renderers.Where(r => r != null).SelectMany(r => r.sharedMaterials))
+        {
+            if (MaterialVariants.Has(material, property + ".r"))
+                return property.EndsWith("_ST") ? "St" : "Color";
+
+            if (MaterialVariants.Has(material, property))
+                return "Float";
+        }
+
+        return "Float";
     }
 
     static void CollectBlendShapes(Transform avatarRoot, object action, ToggleState on)

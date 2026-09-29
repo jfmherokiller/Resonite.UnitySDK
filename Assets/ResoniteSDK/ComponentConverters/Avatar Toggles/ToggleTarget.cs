@@ -115,23 +115,101 @@ public class BlendShapeTarget : ToggleTarget<float>
 }
 
 /// <summary>
+/// One material slot of a renderer. Toggles swap the slot's material (material swaps), or a variant of it with some
+/// properties changed (material property animations, see <see cref="MaterialVariants"/>).
+/// </summary>
+public class MaterialSlotTarget
+{
+    public readonly Renderer Renderer;
+    public readonly int Slot;
+
+    public MaterialSlotTarget(Renderer renderer, int slot)
+    {
+        Renderer = renderer;
+        Slot = slot;
+    }
+
+    public string Key => $"material:{Renderer.GetInstanceID()}:{Slot}";
+
+    public Material RestValue => Slot < Renderer.sharedMaterials.Length ? Renderer.sharedMaterials[Slot] : null;
+
+    /// <summary>
+    /// Resolves the slot's material reference on the converted renderer
+    /// </summary>
+    public void ResolveSlot(IConversionContext context, Action<FrooxEngine.AssetRef<FrooxEngine.Material>> onResolved)
+    {
+        context.RunOnConverted(Renderer, () =>
+        {
+            FrooxEngine.MeshRenderer data = null;
+
+            if (Renderer is SkinnedMeshRenderer)
+                data = Renderer.GetComponent<FrooxEngine.SkinnedMeshRendererWrapper>()?.Data;
+            else
+                data = Renderer.GetComponent<FrooxEngine.MeshRendererWrapper>()?.Data;
+
+            if (data != null && Slot < data.Materials.Count)
+                onResolved(data.Materials.GetElement(Slot).Member);
+        });
+    }
+}
+
+/// <summary>
+/// What a toggle state does to a material slot: an optional swapped material, with optional property overrides
+/// (shader property name as animated, e.g. "_Color.r" or "_EmissionStrength")
+/// </summary>
+public class MaterialSlotState
+{
+    public Material Material;
+    public readonly Dictionary<string, float> Properties = new Dictionary<string, float>();
+
+    /// <summary>
+    /// The Unity material this state shows in the slot
+    /// </summary>
+    public Material Resolve(MaterialSlotTarget target) => MaterialVariants.Get(Material != null ? Material : target.RestValue, Properties);
+}
+
+/// <summary>
 /// The values a toggle (or one option of a selector) sets
 /// </summary>
 public class ToggleState
 {
     public readonly Dictionary<string, (ToggleTarget<bool> target, bool value)> Bools = new Dictionary<string, (ToggleTarget<bool>, bool)>();
     public readonly Dictionary<string, (ToggleTarget<float> target, float value)> Floats = new Dictionary<string, (ToggleTarget<float>, float)>();
+    public readonly Dictionary<string, (MaterialSlotTarget target, MaterialSlotState value)> Materials =
+        new Dictionary<string, (MaterialSlotTarget, MaterialSlotState)>();
 
-    public bool IsEmpty => Bools.Count == 0 && Floats.Count == 0;
+    public bool IsEmpty => Bools.Count == 0 && Floats.Count == 0 && Materials.Count == 0;
 
     public void Set(ToggleTarget<bool> target, bool value) => Bools[target.Key] = (target, value);
     public void Set(ToggleTarget<float> target, float value) => Floats[target.Key] = (target, value);
 
-    public IEnumerable<string> Keys => Bools.Keys.Concat(Floats.Keys);
+    public void SetMaterial(MaterialSlotTarget target, Material material) => GetMaterialState(target).Material = material;
+
+    public void SetMaterialProperty(MaterialSlotTarget target, string property, float value) =>
+        GetMaterialState(target).Properties[property] = value;
+
+    public void Set(MaterialSlotTarget target, MaterialSlotState value) => Materials[target.Key] = (target, value);
+
+    /// <summary>
+    /// The Unity material this state shows in the slot, or its rest material if the state doesn't change it
+    /// </summary>
+    public Material ResolveMaterial(MaterialSlotTarget target) =>
+        Materials.TryGetValue(target.Key, out var entry) ? entry.value.Resolve(target) : target.RestValue;
+
+    MaterialSlotState GetMaterialState(MaterialSlotTarget target)
+    {
+        if (!Materials.TryGetValue(target.Key, out var entry))
+            Materials[target.Key] = entry = (target, new MaterialSlotState());
+
+        return entry.value;
+    }
+
+    public IEnumerable<string> Keys => Bools.Keys.Concat(Floats.Keys).Concat(Materials.Keys);
 
     public void Remove(string key)
     {
         Bools.Remove(key);
         Floats.Remove(key);
+        Materials.Remove(key);
     }
 }

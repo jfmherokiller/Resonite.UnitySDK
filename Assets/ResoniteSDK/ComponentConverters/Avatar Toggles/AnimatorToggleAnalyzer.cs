@@ -11,7 +11,8 @@ using UnityEngine;
 ///
 /// Every transition that has conditions on the parameter, all of which are satisfied by the value, is followed to its
 /// destination state. The animation clips of those states are then read into a <see cref="ToggleState"/>.
-/// Supported animated properties are object active state, renderer enabled state and blendshape weights.
+/// Supported animated properties are object active state, renderer enabled state, blendshape weights, material
+/// properties (as material variants, see <see cref="MaterialVariants"/>) and material swaps.
 /// Float parameters (e.g. radial puppets) can be sampled with <see cref="SampleFloat"/>, which also handles 1D blend trees
 /// and motion time.
 /// </summary>
@@ -100,14 +101,62 @@ public static class AnimatorToggleAnalyzer
                     if (target.GetComponent(binding.type) is Renderer renderer)
                         state.Set(new RendererEnabledTarget(renderer), value > 0.5f);
                 }
+                else if (typeof(Renderer).IsAssignableFrom(binding.type) && binding.propertyName.StartsWith(MATERIAL_PREFIX))
+                {
+                    // Material property curves apply to every material of the renderer that has the property
+                    var property = binding.propertyName.Substring(MATERIAL_PREFIX.Length);
+                    var applied = false;
+
+                    if (target.GetComponent(binding.type) is Renderer renderer)
+                        for (int slot = 0; slot < renderer.sharedMaterials.Length; slot++)
+                            if (MaterialVariants.Has(renderer.sharedMaterials[slot], property))
+                            {
+                                state.SetMaterialProperty(new MaterialSlotTarget(renderer, slot), property, value);
+                                applied = true;
+                            }
+
+                    if (!applied)
+                        unsupported.Add($"material property {property}");
+                }
                 else
                     unsupported.Add($"{binding.type.Name}.{binding.propertyName}");
             }
 
-            if (AnimationUtility.GetObjectReferenceCurveBindings(clip).Length > 0)
-                unsupported.Add("material/object swaps");
+            foreach (var binding in AnimationUtility.GetObjectReferenceCurveBindings(clip))
+            {
+                var keys = AnimationUtility.GetObjectReferenceCurve(clip, binding);
+                var target = resolvePath(binding.path);
+                var slot = MaterialSlotIndex(binding.propertyName);
+
+                if (keys == null || keys.Length == 0 || target == null)
+                    continue;
+
+                if (slot >= 0 && typeof(Renderer).IsAssignableFrom(binding.type) && target.GetComponent(binding.type) is Renderer renderer
+                    && slot < renderer.sharedMaterials.Length)
+                {
+                    // The last key at or before the sampled time, like Unity's constant object curves
+                    var time = normalizedTime.HasValue ? normalizedTime.Value * clip.length : keys[0].time;
+                    var key = keys.Where(k => k.time <= time).DefaultIfEmpty(keys[0]).Last();
+
+                    if (key.value is Material material)
+                        state.SetMaterial(new MaterialSlotTarget(renderer, slot), material);
+                }
+                else
+                    unsupported.Add($"{binding.type.Name}.{binding.propertyName} (object swap)");
+            }
         }
     }
+
+    const string MATERIAL_PREFIX = "material.";
+    const string MATERIAL_SLOT_PREFIX = "m_Materials.Array.data[";
+
+    /// <summary>
+    /// Material slot of a material swap binding ("m_Materials.Array.data[1]"), or -1
+    /// </summary>
+    static int MaterialSlotIndex(string propertyName) =>
+        propertyName.StartsWith(MATERIAL_SLOT_PREFIX) && propertyName.EndsWith("]")
+            && int.TryParse(propertyName.Substring(MATERIAL_SLOT_PREFIX.Length, propertyName.Length - MATERIAL_SLOT_PREFIX.Length - 1), out var slot)
+            ? slot : -1;
 
     /// <summary>
     /// Reads what the controllers do when a float parameter has the given value (e.g. a radial puppet). In addition to
@@ -194,7 +243,25 @@ public static class AnimatorToggleAnalyzer
 
         foreach (var key in stateA.Keys.Concat(stateB.Keys).Distinct().ToList())
         {
-            if (stateA.Floats.ContainsKey(key) || stateB.Floats.ContainsKey(key))
+            if (stateA.Materials.ContainsKey(key) || stateB.Materials.ContainsKey(key))
+            {
+                var target = stateA.Materials.TryGetValue(key, out var ma) ? ma.target : stateB.Materials[key].target;
+                var a2 = stateA.Materials.TryGetValue(key, out ma) ? ma.value : null;
+                var b2 = stateB.Materials.TryGetValue(key, out var mb) ? mb.value : null;
+
+                // Swaps switch at the midpoint, properties are interpolated (missing ones use the rest material's value)
+                var blended = new MaterialSlotState { Material = (t < 0.5f ? a2 : b2)?.Material };
+                var rest = target.RestValue;
+
+                foreach (var property in (a2?.Properties.Keys ?? Enumerable.Empty<string>()).Concat(b2?.Properties.Keys ?? Enumerable.Empty<string>()).Distinct())
+                {
+                    float Value(MaterialSlotState s) => s != null && s.Properties.TryGetValue(property, out var v) ? v : MaterialVariants.GetValue(rest, property);
+                    blended.Properties[property] = Mathf.Lerp(Value(a2), Value(b2), t);
+                }
+
+                state.Set(target, blended);
+            }
+            else if (stateA.Floats.ContainsKey(key) || stateB.Floats.ContainsKey(key))
             {
                 var target = stateA.Floats.TryGetValue(key, out var fa) ? fa.target : stateB.Floats[key].target;
                 var valueA = stateA.Floats.TryGetValue(key, out fa) ? fa.value : target.RestValue;
