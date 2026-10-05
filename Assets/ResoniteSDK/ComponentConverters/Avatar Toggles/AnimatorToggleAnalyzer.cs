@@ -13,8 +13,8 @@ using UnityEngine;
 /// destination state. The animation clips of those states are then read into a <see cref="ToggleState"/>.
 /// Supported animated properties are object active state, renderer enabled state, blendshape weights, material
 /// properties (as material variants, see <see cref="MaterialVariants"/>) and material swaps.
-/// Float parameters (e.g. radial puppets) can be sampled with <see cref="SampleFloat"/>, which also handles 1D blend trees
-/// and motion time.
+/// Float parameters (e.g. radial and axis puppets) can be sampled with <see cref="SampleFloat"/>, which also handles 1D/2D
+/// blend trees and motion time.
 /// </summary>
 public static class AnimatorToggleAnalyzer
 {
@@ -162,6 +162,7 @@ public static class AnimatorToggleAnalyzer
     /// Reads what the controllers do when a float parameter has the given value (e.g. a radial puppet). In addition to
     /// transitions (e.g. Greater / Less conditions), this includes states whose motion depends on the parameter directly:
     /// - 1D blend trees blended by the parameter, interpolated between their children like Unity does
+    /// - 2D blend trees using the parameter on either axis (other axis at 0, approximated weights)
     /// - Motion time driven by the parameter, evaluating the clip at that point
     /// </summary>
     public static ToggleState SampleFloat(IEnumerable<RuntimeAnimatorController> controllers, string parameter, float value,
@@ -188,8 +189,9 @@ public static class AnimatorToggleAnalyzer
 
                 foreach (var animatorState in AllStates(layer.stateMachine))
                 {
-                    if (animatorState.motion is BlendTree tree && tree.blendParameter == parameter)
-                        SampleBlendTree(tree, value, overrides, resolvePath, state, unsupported);
+                    if (animatorState.motion is BlendTree tree && (tree.blendParameter == parameter
+                        || (tree.blendType != BlendTreeType.Simple1D && tree.blendType != BlendTreeType.Direct && tree.blendParameterY == parameter)))
+                        SampleBlendTree(tree, parameter, value, overrides, resolvePath, state, unsupported);
                     else if (animatorState.timeParameterActive && animatorState.timeParameter == parameter
                         && animatorState.motion is AnimationClip timeClip)
                         ReadClips(new[] { Override(timeClip, overrides) }, resolvePath, state, unsupported, Mathf.Clamp01(value));
@@ -206,76 +208,118 @@ public static class AnimatorToggleAnalyzer
         return state;
     }
 
-    static void SampleBlendTree(BlendTree tree, float value, AnimatorOverrideController overrides, Func<string, Transform> resolvePath,
-        ToggleState state, ICollection<string> unsupported)
+    static void SampleBlendTree(BlendTree tree, string parameter, float value, AnimatorOverrideController overrides,
+        Func<string, Transform> resolvePath, ToggleState state, ICollection<string> unsupported)
     {
-        if (tree.blendType != BlendTreeType.Simple1D)
-        {
-            unsupported.Add("2D/direct blend trees");
-            return;
-        }
-
-        var children = tree.children.Where(c => c.motion != null).OrderBy(c => c.threshold).ToList();
+        var children = tree.children.Where(c => c.motion != null).ToList();
 
         if (children.Count == 0)
             return;
 
-        // Find the two children around the value
-        var upper = children.FindIndex(c => c.threshold >= value);
-        var a = upper <= 0 ? children[0] : children[upper - 1];
-        var b = upper < 0 ? children[children.Count - 1] : children[upper];
-        var t = Mathf.Approximately(a.threshold, b.threshold) ? 0 : Mathf.Clamp01((value - a.threshold) / (b.threshold - a.threshold));
+        List<(ChildMotion child, float weight)> weights;
 
-        ToggleState Read(ChildMotion child)
+        if (tree.blendType == BlendTreeType.Simple1D)
+        {
+            var sorted = children.OrderBy(c => c.threshold).ToList();
+
+            // The two children around the value
+            var upper = sorted.FindIndex(c => c.threshold >= value);
+            var a = upper <= 0 ? sorted[0] : sorted[upper - 1];
+            var b = upper < 0 ? sorted[sorted.Count - 1] : sorted[upper];
+            var t = Mathf.Approximately(a.threshold, b.threshold) ? 0 : Mathf.Clamp01((value - a.threshold) / (b.threshold - a.threshold));
+
+            weights = new List<(ChildMotion, float)> { (a, 1 - t), (b, t) };
+        }
+        else if (tree.blendType != BlendTreeType.Direct)
+        {
+            // 2D: the other axis is at rest (0), like an axis puppet moved along one axis only
+            var point = tree.blendParameter == parameter ? new Vector2(value, 0) : new Vector2(0, value);
+            weights = Weights2D(children, point);
+        }
+        else
+        {
+            unsupported.Add("direct blend trees");
+            return;
+        }
+
+        var states = weights.Where(w => w.weight > 0.0001f).Select(w =>
         {
             var childState = new ToggleState();
 
-            if (child.motion is AnimationClip clip)
+            if (w.child.motion is AnimationClip clip)
                 ReadClips(new[] { Override(clip, overrides) }, resolvePath, childState, unsupported);
             else
                 unsupported.Add("nested blend trees");
 
-            return childState;
-        }
+            return (childState, w.weight);
+        }).ToList();
 
-        var stateA = Read(a);
-        var stateB = t > 0 ? Read(b) : stateA;
+        Blend(states, state);
+    }
 
-        foreach (var key in stateA.Keys.Concat(stateB.Keys).Distinct().ToList())
+    /// <summary>
+    /// Approximates Unity's 2D blending with inverse distance weights (exact at the children's positions)
+    /// </summary>
+    static List<(ChildMotion child, float weight)> Weights2D(List<ChildMotion> children, Vector2 point)
+    {
+        var exact = children.FindIndex(c => (c.position - point).sqrMagnitude < 0.000001f);
+
+        if (exact >= 0)
+            return new List<(ChildMotion, float)> { (children[exact], 1) };
+
+        var inverse = children.Select(c => (c, 1 / (c.position - point).sqrMagnitude)).ToList();
+        var total = inverse.Sum(w => w.Item2);
+
+        return inverse.Select(w => (w.c, w.Item2 / total)).ToList();
+    }
+
+    /// <summary>
+    /// Weighted blend of the states into the target. Values are interpolated, on/off properties and material swaps
+    /// come from the state with the highest weight. Properties missing from a state use their rest value.
+    /// </summary>
+    static void Blend(List<(ToggleState state, float weight)> states, ToggleState target)
+    {
+        if (states.Count == 0)
+            return;
+
+        var total = states.Sum(s => s.weight);
+        var dominant = states.OrderByDescending(s => s.weight).First().state;
+
+        foreach (var key in states.SelectMany(s => s.state.Keys).Distinct().ToList())
         {
-            if (stateA.Materials.ContainsKey(key) || stateB.Materials.ContainsKey(key))
+            var materials = states.Where(s => s.state.Materials.ContainsKey(key)).ToList();
+            var floats = states.Where(s => s.state.Floats.ContainsKey(key)).ToList();
+
+            if (materials.Count > 0)
             {
-                var target = stateA.Materials.TryGetValue(key, out var ma) ? ma.target : stateB.Materials[key].target;
-                var a2 = stateA.Materials.TryGetValue(key, out ma) ? ma.value : null;
-                var b2 = stateB.Materials.TryGetValue(key, out var mb) ? mb.value : null;
-
-                // Swaps switch at the midpoint, properties are interpolated (missing ones use the rest material's value)
-                var blended = new MaterialSlotState { Material = (t < 0.5f ? a2 : b2)?.Material };
-                var rest = target.RestValue;
-
-                foreach (var property in (a2?.Properties.Keys ?? Enumerable.Empty<string>()).Concat(b2?.Properties.Keys ?? Enumerable.Empty<string>()).Distinct())
+                var slot = materials[0].state.Materials[key].target;
+                var rest = slot.RestValue;
+                var blended = new MaterialSlotState
                 {
-                    float Value(MaterialSlotState s) => s != null && s.Properties.TryGetValue(property, out var v) ? v : MaterialVariants.GetValue(rest, property);
-                    blended.Properties[property] = Mathf.Lerp(Value(a2), Value(b2), t);
-                }
+                    Material = dominant.Materials.TryGetValue(key, out var d) ? d.value.Material : null,
+                };
 
-                state.Set(target, blended);
+                MaterialSlotState Of(ToggleState s) => s.Materials.TryGetValue(key, out var m) ? m.value : null;
+
+                foreach (var property in materials.SelectMany(s => s.state.Materials[key].value.Properties.Keys).Distinct())
+                    blended.Properties[property] = states.Sum(s =>
+                    {
+                        var m = Of(s.state);
+                        return s.weight * (m != null && m.Properties.TryGetValue(property, out var v) ? v : MaterialVariants.GetValue(rest, property));
+                    }) / total;
+
+                target.Set(slot, blended);
             }
-            else if (stateA.Floats.ContainsKey(key) || stateB.Floats.ContainsKey(key))
+            else if (floats.Count > 0)
             {
-                var target = stateA.Floats.TryGetValue(key, out var fa) ? fa.target : stateB.Floats[key].target;
-                var valueA = stateA.Floats.TryGetValue(key, out fa) ? fa.value : target.RestValue;
-                var valueB = stateB.Floats.TryGetValue(key, out var fb) ? fb.value : target.RestValue;
-
-                state.Set(target, Mathf.Lerp(valueA, valueB, t));
+                var floatTarget = floats[0].state.Floats[key].target;
+                target.Set(floatTarget, states.Sum(s => s.weight *
+                    (s.state.Floats.TryGetValue(key, out var f) ? f.value : floatTarget.RestValue)) / total);
             }
             else
             {
-                // On/off properties switch at the midpoint
-                var source = t < 0.5f ? stateA : stateB;
-                var target = stateA.Bools.TryGetValue(key, out var ba) ? ba.target : stateB.Bools[key].target;
-
-                state.Set(target, source.Bools.TryGetValue(key, out var chosen) ? chosen.value : target.RestValue);
+                var boolTarget = states.First(s => s.state.Bools.ContainsKey(key)).state.Bools[key].target;
+                target.Set(boolTarget, dominant.Bools.TryGetValue(key, out var b) ? b.value : boolTarget.RestValue);
             }
         }
     }

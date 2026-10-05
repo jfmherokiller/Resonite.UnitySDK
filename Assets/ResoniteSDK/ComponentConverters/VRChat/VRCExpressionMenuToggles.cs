@@ -42,12 +42,15 @@ public class ExpressionMenuSource
 /// - Bool and float parameters (and int parameters with a single value) become on/off toggles. If the same toggle
 ///   appears in multiple places, each item flips the same state.
 /// - Int parameters with multiple values become selectors, where each item selects its value.
+/// - Buttons work like toggles (or selector options), but only while held, like in VRChat (ProtoFlux on press/release).
 /// - Radial puppets become a submenu of steps (0%, 25%...) setting the puppet's value, which drives the properties
-///   through gradients sampled from the animator (including 1D blend trees and motion time). Resonite's context menu
-///   has no sliders, so the value can only be set in steps.
+///   through gradients sampled from the animator (including 1D/2D blend trees and motion time). Resonite's context
+///   menu has no sliders, so the value can only be set in steps.
+/// - Two/four axis puppets become a submenu with a puppet for each axis parameter (two axis: -100%...100%, four
+///   axis: 0%...100%). Each axis is sampled with the others at rest, so combined diagonal poses are approximated.
 ///
 /// Each property can only be driven by one toggle in Resonite, so if multiple parameters control the same property,
-/// only the first one gets it. Buttons and two/four axis puppets aren't converted.
+/// only the first one gets it.
 /// </summary>
 public static class VRCExpressionMenuToggles
 {
@@ -59,14 +62,25 @@ public static class VRCExpressionMenuToggles
     const int PUPPET_SAMPLES = 10;
     static readonly float[] PUPPET_STEPS = { 0f, 0.25f, 0.5f, 0.75f, 1f };
 
+    enum ControlKind { Toggle, Button, Puppet }
+
     class MenuControl
     {
         public string[] Folders;
         public string Label;
         public string Parameter;
         public float Value;
-        public bool Radial;
+        public ControlKind Kind;
+
+        // Lowest puppet value (0, or -1 for two axis puppets)
+        public float Min;
+
+        public bool IsPuppet => Kind == ControlKind.Puppet;
+        public bool IsButton => Kind == ControlKind.Button;
     }
+
+    static readonly string[] TWO_AXIS_LABELS = { "Horizontal", "Vertical" };
+    static readonly string[] FOUR_AXIS_LABELS = { "Up", "Right", "Down", "Left" };
 
     /// <param name="owner">Component the menu belongs to. Selector states are created under it.</param>
     /// <param name="items">Generated menu items, reused between updates in the same order</param>
@@ -200,12 +214,12 @@ public static class VRCExpressionMenuToggles
             var unsupported = new HashSet<string>();
             var options = group.ToList();
 
-            if (options.Any(o => o.Radial))
+            if (options.Any(o => o.IsPuppet))
             {
-                BuildPuppet(owner, source, controllers, parameter, definition.defaultValue, options.Where(o => o.Radial).ToList(),
+                BuildPuppet(owner, source, controllers, parameter, definition.defaultValue, options.Where(o => o.IsPuppet).ToList(),
                     claimed, unsupported, context, report, nextItem, nextSelector);
 
-                if (options.Any(o => !o.Radial))
+                if (options.Any(o => !o.IsPuppet))
                     report.Info("puppettoggle:" + parameter, $"Menu parameter {parameter} is used by both a radial puppet and toggles, " +
                         $"only the puppet is converted.", owner);
             }
@@ -254,11 +268,18 @@ public static class VRCExpressionMenuToggles
 
         var defaultOn = definition.type == "Bool" ? definition.defaultValue != 0 : Mathf.Approximately(definition.defaultValue, onValue);
 
-        var state = AvatarToggleBuilder.BuildToggle(nextItem(first.Folders, first.Label, "Toggle"), defaultOn, on, off, context);
+        var state = first.IsButton
+            ? AvatarToggleBuilder.BuildButton(nextItem(first.Folders, first.Label, "Button"), defaultOn, on, off, context)
+            : AvatarToggleBuilder.BuildToggle(nextItem(first.Folders, first.Label, "Toggle"), defaultOn, on, off, context);
 
-        // The same toggle in other places flips the same state
+        // The same parameter in other places sets the same state
         foreach (var option in options.Skip(1))
-            AvatarToggleBuilder.BuildToggleLink(nextItem(option.Folders, option.Label, "Toggle Link"), state);
+        {
+            if (option.IsButton)
+                AvatarToggleBuilder.BuildButtonLink(nextItem(option.Folders, option.Label, "Button Link"), state);
+            else
+                AvatarToggleBuilder.BuildToggleLink(nextItem(option.Folders, option.Label, "Toggle Link"), state);
+        }
     }
 
     static void BuildSelector(Component owner, ExpressionMenuSource source, List<RuntimeAnimatorController> controllers,
@@ -304,9 +325,16 @@ public static class VRCExpressionMenuToggles
 
         // Options appearing in multiple places get an item in each of them. Like in VRChat, each option works as a toggle:
         // pressing it while it's active turns it off, resetting the parameter to 0.
+        // Buttons select their value only while held, then reset the parameter to 0
         foreach (var option in options)
-            AvatarToggleBuilder.BuildSelectorOption(nextItem(option.Folders, option.Label, "Option"), indexField,
-                IndexOf(option.Value), offIndex);
+        {
+            if (option.IsButton)
+                AvatarToggleBuilder.BuildSelectorButton(nextItem(option.Folders, option.Label, "Button"), indexField,
+                    IndexOf(option.Value), offIndex);
+            else
+                AvatarToggleBuilder.BuildSelectorOption(nextItem(option.Folders, option.Label, "Option"), indexField,
+                    IndexOf(option.Value), offIndex);
+        }
 
         // The default value can't be reached through the options otherwise (VRChat only restores it on reset)
         if (!Mathf.Approximately(defaultValue, 0) && !options.Any(o => Mathf.Approximately(o.Value, defaultValue)))
@@ -318,8 +346,12 @@ public static class VRCExpressionMenuToggles
         IConversionContext context, ConversionReporter report, Func<string[], string, string, GameObject> nextItem,
         Func<string, GameObject> nextSelector)
     {
-        var samples = Enumerable.Range(0, PUPPET_SAMPLES + 1)
-            .Select(i => i / (float)PUPPET_SAMPLES)
+        // Two axis puppets go from -1 to 1, so they get twice the samples
+        var min = puppets.Min(p => p.Min);
+        var count = Mathf.RoundToInt(PUPPET_SAMPLES * (1 - min));
+
+        var samples = Enumerable.Range(0, count + 1)
+            .Select(i => Mathf.Lerp(min, 1, i / (float)count))
             .Select(position => (position, state: AnimatorToggleAnalyzer.SampleFloat(controllers, parameter, position, source.ResolvePath, unsupported)))
             .ToList();
 
@@ -327,12 +359,12 @@ public static class VRCExpressionMenuToggles
 
         if (samples.All(s => s.state.IsEmpty))
         {
-            report.Info("empty:" + parameter, $"Radial puppet {puppets[0].Label} ({parameter}) doesn't animate anything " +
+            report.Info("empty:" + parameter, $"Puppet {puppets[0].Label} ({parameter}) doesn't animate anything " +
                 $"that can be converted.", owner);
             return;
         }
 
-        var value = AvatarToggleBuilder.BuildPuppet(nextSelector($"[Resonite] Puppet {parameter}"), Mathf.Clamp01(defaultValue),
+        var value = AvatarToggleBuilder.BuildPuppet(nextSelector($"[Resonite] Puppet {parameter}"), Mathf.Clamp(defaultValue, min, 1),
             samples, context);
 
         // Each place the puppet appears in gets a submenu with the steps
@@ -340,7 +372,7 @@ public static class VRCExpressionMenuToggles
         {
             var folders = puppet.Folders.Append(puppet.Label).ToArray();
 
-            foreach (var step in PUPPET_STEPS)
+            foreach (var step in PUPPET_STEPS.Select(s => Mathf.Lerp(puppet.Min, 1, s)))
                 AvatarToggleBuilder.BuildPuppetStep(nextItem(folders, $"{Mathf.RoundToInt(step * 100)}%", "Puppet Step"), value, step);
         }
     }
@@ -429,11 +461,21 @@ public static class VRCExpressionMenuToggles
                             Folders = folders,
                             Label = name,
                             Parameter = puppetParameter,
-                            Radial = true,
+                            Kind = ControlKind.Puppet,
                         });
                     break;
 
+                // Sub parameter order is the SDK editor's (ExpressionsControlOptions): horizontal, vertical / up, right, down, left
+                case "TwoAxisPuppet":
+                    CollectAxes(control, folders, name, TWO_AXIS_LABELS, -1, controls);
+                    break;
+
+                case "FourAxisPuppet":
+                    CollectAxes(control, folders, name, FOUR_AXIS_LABELS, 0, controls);
+                    break;
+
                 case "Toggle":
+                case "Button":
                     var parameter = ReflectionAccessor.Get(ReflectionAccessor.GetRaw(control, "parameter"), "name", "");
 
                     if (!string.IsNullOrEmpty(parameter))
@@ -443,6 +485,7 @@ public static class VRCExpressionMenuToggles
                             Label = name,
                             Parameter = parameter,
                             Value = ReflectionAccessor.Get(control, "value", 1f),
+                            Kind = type == "Button" ? ControlKind.Button : ControlKind.Toggle,
                         });
                     break;
 
@@ -454,6 +497,36 @@ public static class VRCExpressionMenuToggles
 
         // Only the current path matters, the same menu can appear again in another place
         ancestors.Remove(menu);
+    }
+
+    /// <summary>
+    /// Adds a puppet for each axis parameter, in a submenu named after the control. Axis labels come from the
+    /// control's labels when set.
+    /// </summary>
+    static void CollectAxes(object control, string[] folders, string name, string[] axisLabels, float min, List<MenuControl> controls)
+    {
+        var subParameters = ReflectionAccessor.GetList(control, "subParameters").ToList();
+        var labels = ReflectionAccessor.GetList(control, "labels").ToList();
+        var axisFolders = folders.Append(name).ToArray();
+
+        for (int i = 0; i < axisLabels.Length && i < subParameters.Count; i++)
+        {
+            var parameter = ReflectionAccessor.Get(subParameters[i], "name", "");
+
+            if (string.IsNullOrEmpty(parameter))
+                continue;
+
+            var label = i < labels.Count ? ReflectionAccessor.Get(labels[i], "name", "") : "";
+
+            controls.Add(new MenuControl()
+            {
+                Folders = axisFolders,
+                Label = string.IsNullOrEmpty(label) ? axisLabels[i] : label,
+                Parameter = parameter,
+                Kind = ControlKind.Puppet,
+                Min = min,
+            });
+        }
     }
 
     static Dictionary<string, (string type, float defaultValue)> ReadParameters(IEnumerable<object> parameterAssets)

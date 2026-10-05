@@ -62,13 +62,60 @@ public static class AvatarToggleBuilder
     /// <returns>The toggle's state, which other items can toggle too (see <see cref="BuildToggleLink"/>)</returns>
     public static FrooxEngine.IField<bool> BuildToggle(GameObject item, bool defaultOn, ToggleState on, ToggleState off, IConversionContext context)
     {
-        // The toggle state, which the menu button flips. It drives the state of all the individual properties.
+        var state = BuildToggleState(item, defaultOn, on, off, context);
+        BuildToggleLink(item, state);
+        return state;
+    }
+
+    /// <summary>
+    /// Builds a momentary button: the properties use the on state only while the item is held (like a VRChat button)
+    /// </summary>
+    public static FrooxEngine.IField<bool> BuildButton(GameObject item, bool defaultOn, ToggleState on, ToggleState off, IConversionContext context)
+    {
+        var state = BuildToggleState(item, defaultOn, on, off, context);
+        BuildButtonLink(item, state);
+        return state;
+    }
+
+    /// <summary>
+    /// Builds an item that sets an existing toggle's state while held
+    /// </summary>
+    public static void BuildButtonLink(GameObject item, FrooxEngine.IField<bool> toggleState)
+    {
+        var graph = ButtonGraph(item, out var button);
+        graph.ButtonEvents(button, graph.Write(toggleState, true), graph.Write(toggleState, false));
+        graph.End();
+    }
+
+    /// <summary>
+    /// Builds an item that selects the index of a selector while held, then selects the rest index again
+    /// </summary>
+    public static void BuildSelectorButton(GameObject item, FrooxEngine.IField<int> selectorIndex, int index, int restIndex)
+    {
+        var graph = ButtonGraph(item, out var button);
+        graph.ButtonEvents(button, graph.Write(selectorIndex, index), graph.Write(selectorIndex, restIndex));
+        graph.End();
+    }
+
+    // Press/release need ProtoFlux (button components only react to presses). Nodes live on a child, since
+    // ProtoFluxGraph.End removes every other Resonite component on its host.
+    static ProtoFluxGraph ButtonGraph(GameObject item, out FrooxEngine.IButton button)
+    {
+        button = item.GetComponent<FrooxEngine.ContextMenuItemSourceWrapper>().Data;
+
+        var graph = new ProtoFluxGraph(GeneratedObjectHelper.EnsureChild(item.transform, "[Resonite] Button Flux"));
+        graph.Begin();
+        return graph;
+    }
+
+    /// <summary>
+    /// Builds the bool state of a toggle, which drives all the controlled properties between their on and off values
+    /// </summary>
+    public static FrooxEngine.IField<bool> BuildToggleState(GameObject item, bool defaultOn, ToggleState on, ToggleState off, IConversionContext context)
+    {
         var stateDriver = ConverterComponentHelper.GetOrAdd<ValueMultiDriverBoolWrapper>(item).Data;
         stateDriver.Value = defaultOn;
         stateDriver.Drives.Clear();
-
-        var button = ConverterComponentHelper.GetOrAdd<FrooxEngine.ButtonToggleWrapper>(item).Data;
-        button.TargetValue = stateDriver.Value_Element.Member;
 
         // Properties set by either state. Properties missing from a state use their rest value.
         var bools = on.Bools.Values.Select(v => v.target)

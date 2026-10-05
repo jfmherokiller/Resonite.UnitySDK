@@ -80,6 +80,20 @@ public class ProtoFluxGraph
         return node;
     }
 
+    public INodeValueOutput<bool> Constant(bool value)
+    {
+        var node = Next<ProtoFluxValueInputBoolWrapper>().Data;
+        node.Value = value;
+        return node;
+    }
+
+    public INodeValueOutput<int> Constant(int value)
+    {
+        var node = Next<ProtoFluxValueInputIntWrapper>().Data;
+        node.Value = value;
+        return node;
+    }
+
     public INodeObjectOutput<FrooxEngine.Slot> Slot(Transform transform)
     {
         var node = Next<ProtoFluxSlotInputWrapper>().Data;
@@ -173,6 +187,52 @@ public class ProtoFluxGraph
         }
 
         return strength < 0.999f ? Slerp(Constant(rest), result, Constant(Mathf.Clamp01(strength))) : result;
+    }
+
+    #endregion
+
+    #region ACTIONS
+
+    /// <summary>
+    /// Writes the value into the field when the returned operation is triggered
+    /// </summary>
+    public ISyncNodeOperation Write(FrooxEngine.IField<bool> field, bool value) =>
+        Write<bool, ProtoFluxGlobalValueBoolWrapper, ProtoFluxValueSourceBoolWrapper, ProtoFluxValueWriteBoolWrapper>(field, Constant(value));
+
+    public ISyncNodeOperation Write(FrooxEngine.IField<int> field, int value) =>
+        Write<int, ProtoFluxGlobalValueIntWrapper, ProtoFluxValueSourceIntWrapper, ProtoFluxValueWriteIntWrapper>(field, Constant(value));
+
+    // The field is referenced through a global + ValueSource, like a Source node dropped onto a Write in game
+    ISyncNodeOperation Write<T, TGlobal, TSource, TWrite>(FrooxEngine.IField<T> field, INodeValueOutput<T> value)
+        where T : struct
+        where TGlobal : FrooxEngine.ProtoFlux.GlobalReferenceWrapper<FrooxEngine.IValue<T>>
+        where TSource : FrooxEngine.FrooxEngine.ProtoFlux.CoreNodes.ValueSourceWrapper<T>
+        where TWrite : FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.ValueWriteWrapper<FrooxEngineContext, T>
+    {
+        var global = Next<TGlobal>().Data;
+        var source = Next<TSource>().Data;
+        var write = Next<TWrite>().Data;
+
+        global.Reference = field;
+        source.Source = global;
+        write.Variable = source;
+        write.Value = value;
+
+        return write;
+    }
+
+    /// <summary>
+    /// Triggers the operations when the button (e.g. a context menu item) is pressed / released
+    /// </summary>
+    public void ButtonEvents(FrooxEngine.IButton button, ISyncNodeOperation pressed, ISyncNodeOperation released)
+    {
+        var global = Next<ProtoFluxGlobalButtonWrapper>().Data;
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Interaction.ButtonEventsWrapper>().Data;
+
+        global.Reference = button;
+        node.Button = global;
+        node.Pressed = pressed;
+        node.Released = released;
     }
 
     #endregion
