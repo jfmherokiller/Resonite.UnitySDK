@@ -43,11 +43,10 @@ public class ExpressionMenuSource
 ///   appears in multiple places, each item flips the same state.
 /// - Int parameters with multiple values become selectors, where each item selects its value.
 /// - Buttons work like toggles (or selector options), but only while held, like in VRChat (ProtoFlux on press/release).
-/// - Radial puppets become a submenu of steps (0%, 25%...) setting the puppet's value, which drives the properties
-///   through gradients sampled from the animator (including 1D/2D blend trees and motion time). Resonite's context
-///   menu has no sliders, so the value can only be set in steps.
-/// - Two/four axis puppets use a shared selector with nine direction presets, sampled with all axis parameters
-///   together. The menu cannot provide continuous joystick positions.
+/// - Radial puppets create a draggable UIX slider for continuous adjustment; five menu presets remain as a fallback.
+///   The value drives gradients sampled from the animator (including 1D/2D blend trees and motion time).
+/// - Two/four axis puppets create two continuous UIX sliders and a 3x3 blended state grid. Direction presets remain
+///   available, but the context menu itself cannot display a joystick.
 ///
 /// Each property can only be driven by one toggle in Resonite, so if multiple parameters control the same property,
 /// only the first one gets it.
@@ -264,28 +263,59 @@ public static class VRCExpressionMenuToggles
         }
 
         var defaults = names.ToDictionary(p => p, p => parameters[p].defaultValue);
+        var initial = names.Length == 2
+            ? new Vector2(defaults[names[0]], defaults[names[1]])
+            : new Vector2(defaults[names[1]] - defaults[names[3]], defaults[names[0]] - defaults[names[2]]);
+        initial.x = Mathf.Clamp(initial.x, -1, 1);
+        initial.y = Mathf.Clamp(initial.y, -1, 1);
+        var reconstructed = AxisValues(names, initial);
+        var approximateDefault = names.Any(name => !Mathf.Approximately(defaults[name], reconstructed[name]));
         var unsupported = new HashSet<string>();
-        var states = new List<ToggleState> {
-            AnimatorToggleAnalyzer.SampleParameters(controllers, defaults, source.ResolvePath, unsupported)
-        };
-        states.AddRange(AXIS_POSITIONS.Select(position =>
-            AnimatorToggleAnalyzer.SampleParameters(controllers, AxisValues(names, position), source.ResolvePath, unsupported)));
+        var grid = new List<ToggleState>();
+        for (var row = -1; row <= 1; row++)
+            for (var column = -1; column <= 1; column++)
+                grid.Add(AnimatorToggleAnalyzer.SampleParameters(controllers,
+                    AxisValues(names, new Vector2(column, row)), source.ResolvePath, unsupported));
 
-        Claim(claimed, string.Join(",", names), report, owner, states.ToArray());
-        if (states.All(s => s.IsEmpty))
+        var originalDefault = AnimatorToggleAnalyzer.SampleParameters(controllers, defaults,
+            source.ResolvePath, unsupported);
+        Claim(claimed, string.Join(",", names), report, owner, grid.ToArray());
+        var sampledKeys = new HashSet<string>(grid.SelectMany(s => s.Keys));
+        var defaultOnly = originalDefault.Keys.Where(key => !sampledKeys.Contains(key) && !claimed.Contains(key)).ToList();
+        if (grid.All(s => s.IsEmpty))
         {
-            report.Info("axisempty:" + first.Label, $"Axis puppet {first.Label} doesn't animate anything that can be converted.", owner);
+            if (defaultOnly.Count > 0)
+                report.Warning("axisemptydefault:" + string.Join(",", names),
+                    $"Axis puppet {first.Label} animates at its original default values (including opposing axes), " +
+                    "but no 3x3 slider sample captures that state. This control cannot be converted.", owner);
+            else
+                report.Info("axisempty:" + first.Label,
+                    $"Axis puppet {first.Label} doesn't animate anything that can be converted.", owner);
             return;
         }
+        if (defaultOnly.Count > 0)
+            report.Warning("axisdefaultmissing:" + string.Join(",", names),
+                $"Axis puppet {first.Label} has {defaultOnly.Count} default-only animated properties omitted by the " +
+                "3x3 slider samples. The original independent parameter defaults cannot be represented exactly.", owner);
+        if (approximateDefault)
+            report.Warning("axisdefault:" + string.Join(",", names),
+                $"Axis puppet {first.Label} has opposing or out-of-range default parameters. Two sliders cannot " +
+                "preserve all independent defaults; the initial state and Default preset are approximated.", owner);
 
-        var selector = nextSelector($"[Resonite] Axis Puppet {string.Join(",", names)}");
-        var index = AvatarToggleBuilder.BuildSelector(selector, 0, states, context);
+        var stateObject = nextSelector($"[Resonite] Axis Puppet {string.Join(",", names)}");
+        var panel = nextSelector($"[Resonite] Continuous Axis {string.Join(",", names)}");
+        panel.transform.localPosition = ReflectionAccessor.Get(owner, "ViewPosition", new Vector3(0, 1.5f, 0))
+            + new Vector3(0, -0.28f, 0.55f);
+        panel.transform.localRotation = Quaternion.Euler(0, 180, 0);
+        var (x, y) = AvatarToggleBuilder.BuildContinuousAxes(stateObject, panel, initial, grid, context);
         foreach (var puppet in puppets)
         {
             var folders = puppet.Folders.Append(puppet.Label).ToArray();
-            AvatarToggleBuilder.BuildSelectorOption(nextItem(folders, "Default", "Axis Step"), index, 0);
-            for (var i = 0; i < AXIS_POSITIONS.Length; i++)
-                AvatarToggleBuilder.BuildSelectorOption(nextItem(folders, AxisLabel(puppet.AxisLabels, AXIS_POSITIONS[i]), "Axis Step"), index, i + 1);
+            AvatarToggleBuilder.BuildContinuousSliderToggle(nextItem(folders, "Drag (continuous)", "Axis Slider"), panel);
+            AvatarToggleBuilder.BuildAxisPreset(nextItem(folders, approximateDefault ? "Default (approx.)" : "Default", "Axis Step"), x, y, initial);
+            foreach (var position in AXIS_POSITIONS)
+                AvatarToggleBuilder.BuildAxisPreset(nextItem(folders, AxisLabel(puppet.AxisLabels, position), "Axis Step"),
+                    x, y, position);
         }
 
         if (unsupported.Count > 0)

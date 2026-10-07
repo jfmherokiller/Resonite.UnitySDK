@@ -26,7 +26,8 @@ try:
     text = log.read_text(errors='replace') if log.exists() else ''
     markers = [line for line in text.splitlines() if 'EXPRESSION_PUPPET_TESTS_' in line or 'error CS' in line]
     print('\n'.join(markers[-20:]) or f'No test result marker; inspect {log}')
-    sys.exit(result.returncode if result.returncode else (0 if 'EXPRESSION_PUPPET_TESTS_PASS' in text else 1))
+    failed = bool(result.returncode or 'error CS' in text or 'EXPRESSION_PUPPET_TESTS_FAIL' in text)
+    sys.exit(1 if failed or 'EXPRESSION_PUPPET_TESTS_PASS' not in text else 0)
 finally:
     staged.unlink(missing_ok=True)
     meta.unlink(missing_ok=True)

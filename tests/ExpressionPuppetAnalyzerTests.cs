@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System.Collections.Generic;
+using System.Linq;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.Animations;
@@ -16,8 +17,16 @@ public class ExpressionPuppetAnalyzerTests
             suite.AxisControlIsCollectedAsOneSharedControl();
             suite.ButtonGraphConnectsPressAndRelease();
             suite.ContinuousSliderDrivesPuppetValue();
+            suite.ContinuousSliderRebuildReusesItsCopy();
             suite.MenuItemOpensContinuousSlider();
             suite.RadialMenuOffersDraggableSlider();
+            suite.ContinuousAxisPanelBlendsBothParameters();
+            suite.ContinuousAxisPanelLabelsBothSliders();
+            suite.ContinuousAxisBoolSwitchesFromBothParameters();
+            suite.ContinuousAxisMaterialSwitchesFromBothParameters();
+            suite.TwoAxisMenuOffersContinuousControls();
+            suite.FourAxisOpposingDefaultsAreReportedAsApproximate();
+            suite.FourAxisDefaultOnlyAnimationIsReported();
             suite.FourAxisDiagonalDrivesUpAndRightWithoutDrivingDownOrLeft();
             suite.TwoAxisDiagonalDrivesBothParameters();
             UnityEngine.Debug.Log("EXPRESSION_PUPPET_TESTS_PASS");
@@ -30,7 +39,7 @@ public class ExpressionPuppetAnalyzerTests
         }
     }
 
-    public enum FakeControlType { TwoAxisPuppet, RadialPuppet }
+    public enum FakeControlType { TwoAxisPuppet, FourAxisPuppet, RadialPuppet }
     public enum FakeValueType { Float }
     public class FakeParameter { public string name; public FakeValueType valueType; public float defaultValue; }
     public class FakeParameterAsset { public FakeParameter[] parameters; }
@@ -119,6 +128,21 @@ public class ExpressionPuppetAnalyzerTests
     }
 
     [Test]
+    public void ContinuousSliderRebuildReusesItsCopy()
+    {
+        var panel = new GameObject("Slider Panel");
+        try
+        {
+            var state = panel.AddComponent<ValueMultiDriverFloatWrapper>().Data.Value_Element.Member;
+            AvatarToggleBuilder.BuildContinuousSlider(panel, state, 0.3f, 0, 1);
+            AvatarToggleBuilder.BuildContinuousSlider(panel, state, 0.3f, 0, 1);
+            Assert.AreEqual(1, panel.GetComponentsInChildren<ValueCopyFloatWrapper>().Length,
+                "A realtime update must not add another driver to the same field");
+        }
+        finally { Object.DestroyImmediate(panel); }
+    }
+
+    [Test]
     public void MenuItemOpensContinuousSlider()
     {
         var menu = new GameObject("Menu Item");
@@ -179,6 +203,286 @@ public class ExpressionPuppetAnalyzerTests
         {
             VRCExpressionMenuToggles.Clear(items, selectors);
             Object.DestroyImmediate(clip);
+            Object.DestroyImmediate(tree);
+            Object.DestroyImmediate(controller);
+            Object.DestroyImmediate(menu);
+            Object.DestroyImmediate(root);
+        }
+    }
+
+    class FloatFieldTarget : ToggleTarget<float>
+    {
+        readonly FrooxEngine.IField<float> _field;
+        public FloatFieldTarget(FrooxEngine.IField<float> field) => _field = field;
+        public override string Key => "float:grid";
+        public override float RestValue => 0;
+        public override void ResolveField(IConversionContext context, System.Action<FrooxEngine.IField<float>> resolved) => resolved(_field);
+    }
+
+    [Test]
+    public void ContinuousAxisPanelBlendsBothParameters()
+    {
+        var state = new GameObject("Continuous Axes");
+        var panel = new GameObject("Axis Panel");
+        var targetObject = new GameObject("Animated Field");
+        try
+        {
+            var target = new FloatFieldTarget(targetObject.AddComponent<ValueMultiDriverFloatWrapper>().Data.Value_Element.Member);
+            var grid = new List<ToggleState>();
+            foreach (var y in new[] { -1f, 0f, 1f })
+                foreach (var x in new[] { -1f, 0f, 1f })
+                {
+                    var sample = new ToggleState();
+                    sample.Set(target, (x + 1) * (y + 1) * 0.25f);
+                    grid.Add(sample);
+                }
+            var method = typeof(AvatarToggleBuilder).GetMethod("BuildContinuousAxes");
+            Assert.IsNotNull(method, "Axis puppets need two live sliders and a 2D state driver");
+            method.Invoke(null, new object[] { state, panel, Vector2.zero, grid, null });
+            Assert.AreEqual(2, panel.GetComponentsInChildren<FrooxEngine.UIX.SliderWrapper<float>>().Length);
+            Assert.AreEqual(1, state.GetComponents<ValueGradientDriverFloatWrapper>().Length,
+                "The Y gradient should combine the three X rows into the target field");
+            Assert.AreEqual(3, state.GetComponentsInChildren<ValueCopyFloatWrapper>().Length);
+        }
+        finally { Object.DestroyImmediate(panel); Object.DestroyImmediate(state); Object.DestroyImmediate(targetObject); }
+    }
+
+    [Test]
+    public void ContinuousAxisPanelLabelsBothSliders()
+    {
+        var state = new GameObject("Axis State");
+        var panel = new GameObject("Axis Panel");
+        try
+        {
+            var grid = new List<ToggleState>();
+            for (var i = 0; i < 9; i++) grid.Add(new ToggleState());
+            AvatarToggleBuilder.BuildContinuousAxes(state, panel, Vector2.zero, grid, null);
+            var labels = panel.GetComponentsInChildren<FrooxEngine.UIX.TextWrapper>()
+                .Select(t => t.Data.Content).ToArray();
+            CollectionAssert.AreEquivalent(new[] { "Horizontal", "Vertical" }, labels);
+        }
+        finally { Object.DestroyImmediate(panel); Object.DestroyImmediate(state); }
+    }
+
+    [Test]
+    public void ContinuousAxisBoolSwitchesFromBothParameters()
+    {
+        var state = new GameObject("Axis State");
+        var panel = new GameObject("Axis Panel");
+        var target = new GameObject("Target");
+        try
+        {
+            var field = new ObjectActiveTarget(target.transform);
+            var grid = new List<ToggleState>();
+            foreach (var y in new[] { -1f, 0f, 1f })
+                foreach (var x in new[] { -1f, 0f, 1f })
+                {
+                    var sample = new ToggleState();
+                    sample.Set(field, x > 0 && y > 0);
+                    grid.Add(sample);
+                }
+            AvatarToggleBuilder.BuildContinuousAxes(state, panel, Vector2.zero, grid, null);
+            var outer = state.GetComponent<ValueGradientDriverBoolWrapper>();
+            Assert.IsNotNull(outer, "Boolean animation must follow both live axes");
+            Assert.IsFalse(outer.Data.Interpolate);
+            Assert.AreEqual(new SlotActiveField(target.transform), outer.Data.Target);
+            Assert.AreEqual(3, state.GetComponents<FrooxEngine.ValueCopyWrapper<bool>>().Length);
+        }
+        finally { Object.DestroyImmediate(target); Object.DestroyImmediate(panel); Object.DestroyImmediate(state); }
+    }
+
+    class ImmediateContext : IConversionContext
+    {
+        public string GetUniqueMessageId(string prefix) => prefix;
+        public string GetTransformSlotId(Transform transform) => null;
+        public string GetId(FrooxEngine.IWorldElement o) => null;
+        public string GetIdOrAllocate(FrooxEngine.IWorldElement o) => null;
+        public string GetIdOrAllocate(FrooxEngine.IWorldElement o, out bool allocated) { allocated = false; return null; }
+        public void RemoveId(FrooxEngine.IWorldElement o) { }
+        public FrooxEngine.IWorldElement TryResolveId(string id) => null;
+        public void RunOnConverted(Component component, System.Action action) => action();
+        public FrooxEngine.IAssetProvider<FrooxEngine.Mesh> GetMesh(Mesh mesh, AssetMessagePostProcessor p = null) => null;
+        public FrooxEngine.IAssetProvider<FrooxEngine.ITexture> GetITexture(Texture texture, AssetMessagePostProcessor p = null) => null;
+        public FrooxEngine.IAssetProvider<FrooxEngine.ITexture2D> GetITexture2D(Texture texture, AssetMessagePostProcessor p = null) => null;
+        public FrooxEngine.IAssetProvider<FrooxEngine.Texture2D> GetTexture2D(Texture2D texture, AssetMessagePostProcessor p = null) => null;
+        public FrooxEngine.IAssetProvider<FrooxEngine.Cubemap> GetCubemap(Cubemap cubemap, AssetMessagePostProcessor p = null) => null;
+        public FrooxEngine.IAssetProvider<FrooxEngine.AudioClip> GetAudioClip(AudioClip audioClip, AssetMessagePostProcessor p = null) => null;
+        public FrooxEngine.IAssetProvider<FrooxEngine.Material> GetMaterial(Material material) => null;
+        public System.Threading.Tasks.Task<ResoniteLink.MethodResult> CallMethod(ResoniteLink.CallSyncMethod request) => null;
+        public System.Threading.Tasks.Task<ResoniteLink.MethodResult> CallMethod(ResoniteLink.CallStaticSyncMethod request) => null;
+    }
+
+    [Test]
+    public void ContinuousAxisMaterialSwitchesFromBothParameters()
+    {
+        var state = new GameObject("Axis State");
+        var panel = new GameObject("Axis Panel");
+        var target = new GameObject("Target");
+        try
+        {
+            var renderer = target.AddComponent<MeshRenderer>();
+            renderer.gameObject.AddComponent<FrooxEngine.MeshRendererWrapper>().Data.Materials.Add();
+            var slot = new MaterialSlotTarget(renderer, 0);
+            var grid = new List<ToggleState>();
+            for (var i = 0; i < 9; i++)
+            {
+                var sample = new ToggleState();
+                sample.SetMaterial(slot, null);
+                grid.Add(sample);
+            }
+            AvatarToggleBuilder.BuildContinuousAxes(state, panel, Vector2.zero, grid, new ImmediateContext());
+            Assert.IsNotNull(state.GetComponent<ValueGradientDriverIntWrapper>(),
+                "Material swaps must switch at 2D grid points while dragging");
+            Assert.AreEqual(1, state.GetComponents<AssetMultiplexerMaterialWrapper>().Length);
+            Assert.AreEqual(3, state.GetComponents<FrooxEngine.ValueCopyWrapper<int>>().Length);
+        }
+        finally { Object.DestroyImmediate(target); Object.DestroyImmediate(panel); Object.DestroyImmediate(state); }
+    }
+
+    [Test]
+    public void TwoAxisMenuOffersContinuousControls()
+    {
+        var root = new GameObject("Avatar");
+        var target = new GameObject("Target");
+        target.transform.SetParent(root.transform);
+        var menu = ScriptableObject.CreateInstance<FakeMenu>();
+        var controller = new AnimatorController();
+        var tree = new BlendTree { blendType = BlendTreeType.SimpleDirectional2D,
+            blendParameter = "Horizontal", blendParameterY = "Vertical" };
+        var clip = new AnimationClip();
+        var items = new List<GameObject>();
+        var selectors = new List<GameObject>();
+        try
+        {
+            controller.AddParameter("Horizontal", AnimatorControllerParameterType.Float);
+            controller.AddParameter("Vertical", AnimatorControllerParameterType.Float);
+            controller.AddLayer("FX");
+            AnimationUtility.SetEditorCurve(clip, EditorCurveBinding.FloatCurve("Target", typeof(GameObject), "m_IsActive"),
+                AnimationCurve.Constant(0, 1, 1));
+            tree.AddChild(clip, Vector2.zero);
+            tree.AddChild(clip, Vector2.one);
+            controller.layers[0].stateMachine.AddState("Pose").motion = tree;
+            menu.controls.Add(new FakeControl { name = "Aim", type = FakeControlType.TwoAxisPuppet,
+                subParameters = new[] { new FakeParameter { name = "Horizontal" }, new FakeParameter { name = "Vertical" } } });
+            var source = new ExpressionMenuSource { ResolvePath = path => path == "Target" ? target.transform : root.transform };
+            source.Menus.Add((menu, new string[0]));
+            source.Parameters.Add(new FakeParameterAsset { parameters = new[] {
+                new FakeParameter { name = "Horizontal", valueType = FakeValueType.Float },
+                new FakeParameter { name = "Vertical", valueType = FakeValueType.Float } } });
+            source.Controllers.Add(controller);
+            VRCExpressionMenuToggles.Apply(root.transform, new[] { source }, root.transform, items, selectors,
+                null, new ConversionReporter());
+            var panel = selectors.Find(s => s.GetComponent<FrooxEngine.UIX.CanvasWrapper>() != null);
+            Assert.IsNotNull(panel, "2D puppets need a draggable X/Y panel");
+            Assert.AreEqual(2, panel.GetComponentsInChildren<FrooxEngine.UIX.SliderWrapper<float>>(true).Length);
+            Assert.IsFalse(panel.activeSelf);
+            Assert.IsFalse(selectors.Exists(s => s.GetComponent<ValueMultiDriverIntWrapper>() != null),
+                "The discrete selector must not compete to drive the same properties");
+            Assert.IsTrue(items.Exists(item => item.name.Contains("Drag") &&
+                Equals(item.GetComponent<FrooxEngine.ButtonToggleWrapper>()?.Data.TargetValue,
+                    new SlotActiveField(panel.transform))));
+        }
+        finally
+        {
+            VRCExpressionMenuToggles.Clear(items, selectors);
+            Object.DestroyImmediate(clip);
+            Object.DestroyImmediate(tree);
+            Object.DestroyImmediate(controller);
+            Object.DestroyImmediate(menu);
+            Object.DestroyImmediate(root);
+        }
+    }
+
+    [Test]
+    public void FourAxisOpposingDefaultsAreReportedAsApproximate()
+    {
+        var (warnings, items) = RunFourAxisOpposingDefaults(false);
+        Assert.IsTrue(warnings.Any(message => message.Contains("opposing") && message.Contains("default")));
+        Assert.IsTrue(warnings.Any(message => message.Contains("default-only") && message.Contains("omitted")),
+            "Report animated properties that are present only at the original four-axis default");
+        Assert.IsTrue(items.Any(name => name.Contains("Default (approx.)")));
+    }
+
+    [Test]
+    public void FourAxisDefaultOnlyAnimationIsReported()
+    {
+        var (warnings, items) = RunFourAxisOpposingDefaults(true);
+        Assert.IsEmpty(items, "A default-only four-parameter state is not representable with two sliders");
+        Assert.IsTrue(warnings.Any(message => message.Contains("opposing") && message.Contains("default")),
+            "Do not silently discard animation that exists only at opposing four-axis defaults");
+    }
+
+    static (List<string> warnings, List<string> itemNames) RunFourAxisOpposingDefaults(bool defaultOnly)
+    {
+        var root = new GameObject("Avatar");
+        var target = new GameObject("Target");
+        target.transform.SetParent(root.transform);
+        var other = new GameObject("Other");
+        other.transform.SetParent(root.transform);
+        var menu = ScriptableObject.CreateInstance<FakeMenu>();
+        var controller = new AnimatorController();
+        var tree = new BlendTree { blendType = BlendTreeType.Simple1D, blendParameter = "Up" };
+        var clip = new AnimationClip();
+        var activeClip = new AnimationClip();
+        var otherClip = new AnimationClip();
+        var items = new List<GameObject>();
+        var selectors = new List<GameObject>();
+        var warnings = new List<string>();
+        Application.LogCallback onLog = (message, trace, type) => {
+            if (type == LogType.Warning) warnings.Add(message);
+        };
+        Application.logMessageReceived += onLog;
+        try
+        {
+            var names = new[] { "Up", "Right", "Down", "Left" };
+            foreach (var name in names) controller.AddParameter(name, AnimatorControllerParameterType.Float);
+            controller.AddLayer("FX");
+            AnimationUtility.SetEditorCurve(clip, EditorCurveBinding.FloatCurve("Target", typeof(GameObject), "m_IsActive"),
+                AnimationCurve.Constant(0, 1, 0));
+            AnimationUtility.SetEditorCurve(activeClip, EditorCurveBinding.FloatCurve("Target", typeof(GameObject), "m_IsActive"),
+                AnimationCurve.Constant(0, 1, 1));
+            if (defaultOnly)
+            {
+                var pose = controller.layers[0].stateMachine.AddState("Pose");
+                pose.motion = clip;
+                var transition = controller.layers[0].stateMachine.AddAnyStateTransition(pose);
+                transition.AddCondition(AnimatorConditionMode.Greater, 0.5f, "Up");
+                transition.AddCondition(AnimatorConditionMode.Greater, 0.5f, "Down");
+            }
+            else
+            {
+                tree.AddChild(clip, 0);
+                tree.AddChild(activeClip, 1);
+                var machine = controller.layers[0].stateMachine;
+                machine.AddState("Pose").motion = tree;
+                AnimationUtility.SetEditorCurve(otherClip, EditorCurveBinding.FloatCurve("Other", typeof(GameObject), "m_IsActive"),
+                    AnimationCurve.Constant(0, 1, 0));
+                var otherState = machine.AddState("Opposing Default Only");
+                otherState.motion = otherClip;
+                var transition = machine.AddAnyStateTransition(otherState);
+                transition.AddCondition(AnimatorConditionMode.Greater, 0.5f, "Up");
+                transition.AddCondition(AnimatorConditionMode.Greater, 0.5f, "Down");
+            }
+            menu.controls.Add(new FakeControl { name = "Direction", type = FakeControlType.FourAxisPuppet,
+                subParameters = names.Select(name => new FakeParameter { name = name }).ToArray() });
+            var source = new ExpressionMenuSource { ResolvePath = path => path == "Target" ? target.transform :
+                path == "Other" ? other.transform : root.transform };
+            source.Menus.Add((menu, new string[0]));
+            source.Parameters.Add(new FakeParameterAsset { parameters = names.Select(name => new FakeParameter {
+                name = name, valueType = FakeValueType.Float, defaultValue = name == "Up" || name == "Down" ? 1 : 0
+            }).ToArray() });
+            source.Controllers.Add(controller);
+            VRCExpressionMenuToggles.Apply(root.transform, new[] { source }, root.transform, items, selectors,
+                null, new ConversionReporter());
+            return (warnings, items.Select(item => item.name).ToList());
+        }
+        finally
+        {
+            Application.logMessageReceived -= onLog;
+            VRCExpressionMenuToggles.Clear(items, selectors);
+            Object.DestroyImmediate(clip);
+            Object.DestroyImmediate(activeClip);
+            Object.DestroyImmediate(otherClip);
             Object.DestroyImmediate(tree);
             Object.DestroyImmediate(controller);
             Object.DestroyImmediate(menu);

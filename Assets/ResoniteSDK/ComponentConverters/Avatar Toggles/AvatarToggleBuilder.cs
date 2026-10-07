@@ -11,8 +11,8 @@ using UnityEngine;
 ///   off values (<see cref="BuildToggle"/>)
 /// - Selector: multiple items set an index (e.g. VRChat int parameter), which selects the value of each controlled
 ///   property (<see cref="BuildSelector"/>)
-/// - Puppet: items set a float value, which maps to the value of each controlled property (<see cref="BuildPuppet"/>).
-///   Resonite's context menu has no sliders, so the value is set in steps.
+/// - Puppet: a float state interpolates controlled properties across sampled values; a UIX slider adjusts it
+///   continuously, and menu presets can set specific values (<see cref="BuildPuppet"/>).
 ///
 /// Material slots (swaps and animated material properties) are driven with asset drivers / multiplexers, switching
 /// between the converted materials of each state.
@@ -369,23 +369,37 @@ public static class AvatarToggleBuilder
         return value.Value_Element.Member;
     }
 
-    /// <summary>Builds a draggable UIX slider that writes directly into a puppet's continuous float state.</summary>
+    /// <summary>Builds a draggable UIX slider that writes into a continuous puppet state.</summary>
     public static void BuildContinuousSlider(GameObject panel, FrooxEngine.IField<float> puppetValue,
         float initial, float min, float max)
     {
+        SetupSliderCanvas(panel, 0.12f);
+        AddSlider(panel, "[Resonite] Track", puppetValue, initial, min, max, 0.3f, 0.7f);
+    }
+
+    static void SetupSliderCanvas(GameObject panel, float height)
+    {
         var canvas = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.CanvasWrapper>(panel).Data;
-        canvas.Size = new Vector2(0.5f, 0.12f);
+        canvas.Size = new Vector2(0.5f, height);
         canvas.AcceptRemoteTouch = true;
         canvas.AcceptPhysicalTouch = true;
         ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.RectTransformWrapper>(panel);
+    }
 
-        var track = GeneratedObjectHelper.EnsureChild(panel.transform, "[Resonite] Track");
+    static void AddSlider(GameObject panel, string name, FrooxEngine.IField<float> value,
+        float initial, float min, float max, float bottom, float top)
+    {
+        var track = GeneratedObjectHelper.EnsureChild(panel.transform, name);
         var rect = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.RectTransformWrapper>(track).Data;
-        rect.AnchorMin = new Vector2(0.08f, 0.3f);
-        rect.AnchorMax = new Vector2(0.92f, 0.7f);
+        rect.AnchorMin = new Vector2(0.08f, bottom);
+        rect.AnchorMax = new Vector2(0.92f, top);
         rect.OffsetMin = Vector2.zero;
         rect.OffsetMax = Vector2.zero;
         ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.ImageWrapper>(track).Data.InteractionTarget = true;
+        var caption = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.TextWrapper>(track).Data;
+        caption.Content = name == "[Resonite] Track" ? "Value" : name.Substring("[Resonite] ".Length);
+        caption.Size = 0.022f;
+        caption.InteractionTarget = false;
 
         var slider = ConverterComponentHelper.GetOrAdd<ContinuousPuppetSliderWrapper>(track).Data;
         slider.Min = min;
@@ -404,10 +418,164 @@ public static class AvatarToggleBuilder
         slider.HandleAnchorMaxDrive = handleRect.AnchorMax_Element.Member;
         ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.ImageWrapper>(handle).Data.InteractionTarget = false;
 
-        var copy = ConverterComponentHelper.GetOrAdd<ValueCopyFloatWrapper>(panel).Data;
+        var copy = ConverterComponentHelper.GetOrAdd<ValueCopyFloatWrapper>(track).Data;
         copy.Source = slider.Value_Element.Member;
-        copy.Target = puppetValue;
+        copy.Target = value;
         copy.WriteBack = true;
+    }
+
+    /// <summary>Blends a 3x3 axis grid continuously along X, then Y.</summary>
+    public static (FrooxEngine.IField<float> x, FrooxEngine.IField<float> y) BuildContinuousAxes(
+        GameObject stateObject, GameObject panel, Vector2 defaults, IReadOnlyList<ToggleState> grid, IConversionContext context)
+    {
+        if (grid.Count != 9)
+            throw new ArgumentException("Axis grid needs nine samples", nameof(grid));
+
+        var axes = EnsureCount<ValueMultiDriverFloatWrapper>(stateObject, 2);
+        var x = axes[0].Data;
+        var y = axes[1].Data;
+        x.Value = defaults.x;
+        y.Value = defaults.y;
+        x.Drives.Clear();
+        y.Drives.Clear();
+
+        var rows = GeneratedObjectHelper.EnsureChild(stateObject.transform, "[Resonite] Axis Rows");
+        var floats = grid.SelectMany(s => s.Floats.Values).GroupBy(v => v.target.Key).Select(g => g.First().target).ToList();
+        var rowDrivers = EnsureCount<ValueGradientDriverFloatWrapper>(rows, floats.Count * 3);
+        var rowValues = EnsureCount<ValueMultiDriverFloatWrapper>(rows, floats.Count * 3);
+        var outerDrivers = EnsureCount<ValueGradientDriverFloatWrapper>(stateObject, floats.Count);
+        var copies = EnsureCount<ValueCopyFloatWrapper>(stateObject, floats.Count * 3);
+        for (var i = 0; i < floats.Count; i++)
+        {
+            var target = floats[i];
+            var outer = outerDrivers[i].Data;
+            outer.Interpolate = true;
+            outer.Points.Clear();
+            target.ResolveField(context, field => outer.Target = field);
+            y.Drives.Add(outer.Progress_Element.Member);
+            for (var row = 0; row < 3; row++)
+            {
+                var index = i * 3 + row;
+                var rowValue = rowValues[index].Data;
+                rowValue.Drives.Clear();
+                var inner = rowDrivers[index].Data;
+                inner.Interpolate = true;
+                inner.Points.Clear();
+                inner.Target = rowValue.Value_Element.Member;
+                x.Drives.Add(inner.Progress_Element.Member);
+                for (var column = 0; column < 3; column++)
+                {
+                    var point = inner.Points.Add();
+                    point.Position = column - 1;
+                    var sample = grid[row * 3 + column];
+                    point.Value = sample.Floats.TryGetValue(target.Key, out var entry) ? entry.value : target.RestValue;
+                }
+                var outerPoint = outer.Points.Add();
+                outerPoint.Position = row - 1;
+                var copy = copies[index].Data;
+                copy.Source = rowValue.Value_Element.Member;
+                copy.Target = outerPoint.Value_Element.Member;
+                copy.WriteBack = false;
+            }
+        }
+
+        var bools = grid.SelectMany(s => s.Bools.Values).GroupBy(v => v.target.Key).Select(g => g.First().target).ToList();
+        var boolRows = EnsureCount<ValueGradientDriverBoolWrapper>(rows, bools.Count * 3);
+        var boolValues = EnsureCount<ValueMultiDriverBoolWrapper>(rows, bools.Count * 3);
+        var boolOuter = EnsureCount<ValueGradientDriverBoolWrapper>(stateObject, bools.Count);
+        var boolCopies = EnsureCount<ValueCopyBoolWrapper>(stateObject, bools.Count * 3);
+        for (var i = 0; i < bools.Count; i++)
+        {
+            var target = bools[i];
+            var outer = boolOuter[i].Data;
+            outer.Interpolate = false;
+            outer.Points.Clear();
+            target.ResolveField(context, field => outer.Target = field);
+            y.Drives.Add(outer.Progress_Element.Member);
+            for (var row = 0; row < 3; row++)
+            {
+                var index = i * 3 + row;
+                var rowValue = boolValues[index].Data;
+                rowValue.Drives.Clear();
+                var inner = boolRows[index].Data;
+                inner.Interpolate = false;
+                inner.Points.Clear();
+                inner.Target = rowValue.Value_Element.Member;
+                x.Drives.Add(inner.Progress_Element.Member);
+                for (var column = 0; column < 3; column++)
+                {
+                    var point = inner.Points.Add();
+                    point.Position = column - 1;
+                    var sample = grid[row * 3 + column];
+                    point.Value = sample.Bools.TryGetValue(target.Key, out var entry) ? entry.value : target.RestValue;
+                }
+                var outerPoint = outer.Points.Add();
+                outerPoint.Position = row - 1;
+                var copy = boolCopies[index].Data;
+                copy.Source = rowValue.Value_Element.Member;
+                copy.Target = outerPoint.Value_Element.Member;
+                copy.WriteBack = false;
+            }
+        }
+
+        var materials = MaterialSlots(grid);
+        var materialRows = EnsureCount<ValueGradientDriverIntWrapper>(rows, materials.Count * 3);
+        var materialValues = EnsureCount<ValueMultiDriverIntWrapper>(rows, materials.Count * 3);
+        var materialOuter = EnsureCount<ValueGradientDriverIntWrapper>(stateObject, materials.Count);
+        var materialCopies = EnsureCount<ValueCopyIntWrapper>(stateObject, materials.Count * 3);
+        var materialMuxes = EnsureCount<AssetMultiplexerMaterialWrapper>(stateObject, materials.Count);
+        for (var i = 0; i < materials.Count; i++)
+        {
+            var target = materials[i];
+            var mux = materialMuxes[i].Data;
+            mux.Assets.Clear();
+            foreach (var sample in grid)
+                mux.Assets.Add(GetMaterial(context, sample.ResolveMaterial(target)));
+            target.ResolveSlot(context, slot => mux.Target_Element.Data = slot);
+            var outer = materialOuter[i].Data;
+            outer.Interpolate = false;
+            outer.Points.Clear();
+            outer.Target = mux.Index_Element.Member;
+            y.Drives.Add(outer.Progress_Element.Member);
+            for (var row = 0; row < 3; row++)
+            {
+                var index = i * 3 + row;
+                var rowValue = materialValues[index].Data;
+                rowValue.Drives.Clear();
+                var inner = materialRows[index].Data;
+                inner.Interpolate = false;
+                inner.Points.Clear();
+                inner.Target = rowValue.Value_Element.Member;
+                x.Drives.Add(inner.Progress_Element.Member);
+                for (var column = 0; column < 3; column++)
+                {
+                    var point = inner.Points.Add();
+                    point.Position = column - 1;
+                    point.Value = row * 3 + column;
+                }
+                var outerPoint = outer.Points.Add();
+                outerPoint.Position = row - 1;
+                var copy = materialCopies[index].Data;
+                copy.Source = rowValue.Value_Element.Member;
+                copy.Target = outerPoint.Value_Element.Member;
+                copy.WriteBack = false;
+            }
+        }
+
+        SetupSliderCanvas(panel, 0.24f);
+        AddSlider(panel, "[Resonite] Horizontal", x.Value_Element.Member, defaults.x, -1, 1, 0.55f, 0.9f);
+        AddSlider(panel, "[Resonite] Vertical", y.Value_Element.Member, defaults.y, -1, 1, 0.1f, 0.45f);
+        return (x.Value_Element.Member, y.Value_Element.Member);
+    }
+
+    /// <summary>Sets both axes from one context menu action.</summary>
+    public static void BuildAxisPreset(GameObject item, FrooxEngine.IField<float> x, FrooxEngine.IField<float> y, Vector2 position)
+    {
+        var setters = EnsureCount<ButtonValueSetFloatWrapper>(item, 2);
+        setters[0].Data.TargetValue = x;
+        setters[0].Data.SetValue = position.x;
+        setters[1].Data.TargetValue = y;
+        setters[1].Data.SetValue = position.y;
     }
 
     /// <summary>Opens or closes a draggable puppet panel from a context menu item.</summary>
