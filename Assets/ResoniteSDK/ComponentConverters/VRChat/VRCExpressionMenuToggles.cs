@@ -46,8 +46,8 @@ public class ExpressionMenuSource
 /// - Radial puppets become a submenu of steps (0%, 25%...) setting the puppet's value, which drives the properties
 ///   through gradients sampled from the animator (including 1D/2D blend trees and motion time). Resonite's context
 ///   menu has no sliders, so the value can only be set in steps.
-/// - Two/four axis puppets become a submenu with a puppet for each axis parameter (two axis: -100%...100%, four
-///   axis: 0%...100%). Each axis is sampled with the others at rest, so combined diagonal poses are approximated.
+/// - Two/four axis puppets use a shared selector with nine direction presets, sampled with all axis parameters
+///   together. The menu cannot provide continuous joystick positions.
 ///
 /// Each property can only be driven by one toggle in Resonite, so if multiple parameters control the same property,
 /// only the first one gets it.
@@ -62,7 +62,7 @@ public static class VRCExpressionMenuToggles
     const int PUPPET_SAMPLES = 10;
     static readonly float[] PUPPET_STEPS = { 0f, 0.25f, 0.5f, 0.75f, 1f };
 
-    enum ControlKind { Toggle, Button, Puppet }
+    enum ControlKind { Toggle, Button, Puppet, AxisPuppet }
 
     class MenuControl
     {
@@ -71,9 +71,9 @@ public static class VRCExpressionMenuToggles
         public string Parameter;
         public float Value;
         public ControlKind Kind;
-
-        // Lowest puppet value (0, or -1 for two axis puppets)
         public float Min;
+        public string[] AxisParameters;
+        public string[] AxisLabels;
 
         public bool IsPuppet => Kind == ControlKind.Puppet;
         public bool IsButton => Kind == ControlKind.Button;
@@ -81,6 +81,10 @@ public static class VRCExpressionMenuToggles
 
     static readonly string[] TWO_AXIS_LABELS = { "Horizontal", "Vertical" };
     static readonly string[] FOUR_AXIS_LABELS = { "Up", "Right", "Down", "Left" };
+    static readonly Vector2[] AXIS_POSITIONS = {
+        Vector2.zero, Vector2.up, Vector2.right, Vector2.down, Vector2.left,
+        new Vector2(1, 1), new Vector2(1, -1), new Vector2(-1, -1), new Vector2(-1, 1)
+    };
 
     /// <param name="owner">Component the menu belongs to. Selector states are created under it.</param>
     /// <param name="items">Generated menu items, reused between updates in the same order</param>
@@ -201,7 +205,12 @@ public static class VRCExpressionMenuToggles
         foreach (var (menu, path) in menus)
             CollectControls(menu, path, new HashSet<object>(), controls, owner, report);
 
-        foreach (var group in controls.GroupBy(c => c.Parameter))
+        foreach (var group in controls.Where(c => c.AxisParameters != null)
+            .GroupBy(c => string.Join("\u001f", c.AxisParameters)))
+            BuildAxisPuppet(owner, source, controllers, parameters, group.ToList(), claimed,
+                context, report, nextItem, nextSelector);
+
+        foreach (var group in controls.Where(c => c.AxisParameters == null).GroupBy(c => c.Parameter))
         {
             var parameter = group.Key;
 
@@ -239,6 +248,66 @@ public static class VRCExpressionMenuToggles
                 report.Info("unsupported:" + parameter, $"Menu toggle for {parameter} also animates {string.Join(", ", unsupported)}, " +
                     $"which isn't converted.", owner);
         }
+    }
+
+    static void BuildAxisPuppet(Component owner, ExpressionMenuSource source, List<RuntimeAnimatorController> controllers,
+        Dictionary<string, (string type, float defaultValue)> parameters, List<MenuControl> puppets,
+        HashSet<string> claimed, IConversionContext context, ConversionReporter report,
+        Func<string[], string, string, GameObject> nextItem, Func<string, GameObject> nextSelector)
+    {
+        var first = puppets[0];
+        var names = first.AxisParameters;
+        if (names.Any(p => !parameters.TryGetValue(p, out var definition) || definition.type != "Float"))
+        {
+            report.Warning("axis:" + string.Join(",", names), $"Axis puppet {first.Label} needs Float expression parameters for all axes.", owner);
+            return;
+        }
+
+        var defaults = names.ToDictionary(p => p, p => parameters[p].defaultValue);
+        var unsupported = new HashSet<string>();
+        var states = new List<ToggleState> {
+            AnimatorToggleAnalyzer.SampleParameters(controllers, defaults, source.ResolvePath, unsupported)
+        };
+        states.AddRange(AXIS_POSITIONS.Select(position =>
+            AnimatorToggleAnalyzer.SampleParameters(controllers, AxisValues(names, position), source.ResolvePath, unsupported)));
+
+        Claim(claimed, string.Join(",", names), report, owner, states.ToArray());
+        if (states.All(s => s.IsEmpty))
+        {
+            report.Info("axisempty:" + first.Label, $"Axis puppet {first.Label} doesn't animate anything that can be converted.", owner);
+            return;
+        }
+
+        var selector = nextSelector($"[Resonite] Axis Puppet {string.Join(",", names)}");
+        var index = AvatarToggleBuilder.BuildSelector(selector, 0, states, context);
+        foreach (var puppet in puppets)
+        {
+            var folders = puppet.Folders.Append(puppet.Label).ToArray();
+            AvatarToggleBuilder.BuildSelectorOption(nextItem(folders, "Default", "Axis Step"), index, 0);
+            for (var i = 0; i < AXIS_POSITIONS.Length; i++)
+                AvatarToggleBuilder.BuildSelectorOption(nextItem(folders, AxisLabel(puppet.AxisLabels, AXIS_POSITIONS[i]), "Axis Step"), index, i + 1);
+        }
+
+        if (unsupported.Count > 0)
+            report.Info("axisunsupported:" + first.Label, $"Axis puppet {first.Label} also animates {string.Join(", ", unsupported)}, which isn't converted.", owner);
+    }
+
+    static Dictionary<string, float> AxisValues(string[] names, Vector2 position)
+    {
+        if (names.Length == 2)
+            return new Dictionary<string, float> { [names[0]] = position.x, [names[1]] = position.y };
+        return new Dictionary<string, float> {
+            [names[0]] = Mathf.Max(0, position.y), [names[1]] = Mathf.Max(0, position.x),
+            [names[2]] = Mathf.Max(0, -position.y), [names[3]] = Mathf.Max(0, -position.x)
+        };
+    }
+
+    static string AxisLabel(string[] labels, Vector2 position)
+    {
+        if (position == Vector2.zero) return "Center";
+        var vertical = position.y > 0 ? labels[0] : position.y < 0 ? labels[2] : "";
+        var horizontal = position.x > 0 ? labels[1] : position.x < 0 ? labels[3] : "";
+        return string.IsNullOrEmpty(vertical) ? horizontal : string.IsNullOrEmpty(horizontal) ? vertical : vertical + " + " + horizontal;
     }
 
     static void BuildToggle(Component owner, ExpressionMenuSource source, List<RuntimeAnimatorController> controllers,
@@ -467,11 +536,11 @@ public static class VRCExpressionMenuToggles
 
                 // Sub parameter order is the SDK editor's (ExpressionsControlOptions): horizontal, vertical / up, right, down, left
                 case "TwoAxisPuppet":
-                    CollectAxes(control, folders, name, TWO_AXIS_LABELS, -1, controls);
+                    CollectAxes(control, folders, name, TWO_AXIS_LABELS, controls);
                     break;
 
                 case "FourAxisPuppet":
-                    CollectAxes(control, folders, name, FOUR_AXIS_LABELS, 0, controls);
+                    CollectAxes(control, folders, name, FOUR_AXIS_LABELS, controls);
                     break;
 
                 case "Toggle":
@@ -499,34 +568,27 @@ public static class VRCExpressionMenuToggles
         ancestors.Remove(menu);
     }
 
-    /// <summary>
-    /// Adds a puppet for each axis parameter, in a submenu named after the control. Axis labels come from the
-    /// control's labels when set.
-    /// </summary>
-    static void CollectAxes(object control, string[] folders, string name, string[] axisLabels, float min, List<MenuControl> controls)
+    // The SDK stores horizontal/vertical or up/right/down/left in one control; keep them together so
+    // all animated properties share one selector instead of letting the first axis claim every field.
+    static void CollectAxes(object control, string[] folders, string name, string[] axisLabels, List<MenuControl> controls)
     {
-        var subParameters = ReflectionAccessor.GetList(control, "subParameters").ToList();
-        var labels = ReflectionAccessor.GetList(control, "labels").ToList();
-        var axisFolders = folders.Append(name).ToArray();
+        var names = ReflectionAccessor.GetList(control, "subParameters")
+            .Select(p => ReflectionAccessor.Get(p, "name", "")).Take(axisLabels.Length).ToArray();
+        if (names.Length != axisLabels.Length || names.Any(string.IsNullOrEmpty) || names.Distinct().Count() != names.Length)
+            return;
 
-        for (int i = 0; i < axisLabels.Length && i < subParameters.Count; i++)
-        {
-            var parameter = ReflectionAccessor.Get(subParameters[i], "name", "");
+        var labels = ReflectionAccessor.GetList(control, "labels")
+            .Select(label => ReflectionAccessor.Get(label, "name", "")).ToArray();
+        var directions = FOUR_AXIS_LABELS.Select((fallback, index) =>
+            index < labels.Length && !string.IsNullOrEmpty(labels[index]) ? labels[index] : fallback).ToArray();
 
-            if (string.IsNullOrEmpty(parameter))
-                continue;
-
-            var label = i < labels.Count ? ReflectionAccessor.Get(labels[i], "name", "") : "";
-
-            controls.Add(new MenuControl()
-            {
-                Folders = axisFolders,
-                Label = string.IsNullOrEmpty(label) ? axisLabels[i] : label,
-                Parameter = parameter,
-                Kind = ControlKind.Puppet,
-                Min = min,
-            });
-        }
+        controls.Add(new MenuControl {
+            Folders = folders,
+            Label = name,
+            Kind = ControlKind.AxisPuppet,
+            AxisParameters = names,
+            AxisLabels = directions,
+        });
     }
 
     static Dictionary<string, (string type, float defaultValue)> ReadParameters(IEnumerable<object> parameterAssets)

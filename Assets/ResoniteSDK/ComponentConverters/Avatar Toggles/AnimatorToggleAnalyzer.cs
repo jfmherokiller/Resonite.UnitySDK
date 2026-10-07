@@ -166,7 +166,12 @@ public static class AnimatorToggleAnalyzer
     /// - Motion time driven by the parameter, evaluating the clip at that point
     /// </summary>
     public static ToggleState SampleFloat(IEnumerable<RuntimeAnimatorController> controllers, string parameter, float value,
-        Func<string, Transform> resolvePath, ICollection<string> unsupported)
+        Func<string, Transform> resolvePath, ICollection<string> unsupported) =>
+        SampleParameters(controllers, new Dictionary<string, float> { [parameter] = value }, resolvePath, unsupported);
+
+    /// <summary>Samples all supplied parameters together, so a 2D blend tree is evaluated once at the actual point.</summary>
+    public static ToggleState SampleParameters(IEnumerable<RuntimeAnimatorController> controllers,
+        IReadOnlyDictionary<string, float> values, Func<string, Transform> resolvePath, ICollection<string> unsupported)
     {
         var state = new ToggleState();
 
@@ -174,27 +179,29 @@ public static class AnimatorToggleAnalyzer
         {
             var controller = runtimeController as AnimatorController;
             var overrides = runtimeController as AnimatorOverrideController;
-
             if (overrides != null)
                 controller = overrides.runtimeAnimatorController as AnimatorController;
+            if (controller == null)
+                continue;
 
-            var controllerParameter = controller != null ? controller.parameters.FirstOrDefault(p => p.name == parameter) : null;
-
-            if (controllerParameter == null)
+            var types = controller.parameters.Where(p => values.ContainsKey(p.name))
+                .ToDictionary(p => p.name, p => p.type);
+            if (types.Count == 0)
                 continue;
 
             foreach (var layer in controller.layers)
             {
-                var reached = new HashSet<AnimatorState>(FindStates(layer.stateMachine, parameter, controllerParameter.type, value));
-
+                var reached = new HashSet<AnimatorState>(FindStates(layer.stateMachine, values, types));
                 foreach (var animatorState in AllStates(layer.stateMachine))
                 {
-                    if (animatorState.motion is BlendTree tree && (tree.blendParameter == parameter
-                        || (tree.blendType != BlendTreeType.Simple1D && tree.blendType != BlendTreeType.Direct && tree.blendParameterY == parameter)))
-                        SampleBlendTree(tree, parameter, value, overrides, resolvePath, state, unsupported);
-                    else if (animatorState.timeParameterActive && animatorState.timeParameter == parameter
+                    if (animatorState.motion is BlendTree tree &&
+                        (values.ContainsKey(tree.blendParameter) ||
+                         (tree.blendType != BlendTreeType.Simple1D && tree.blendType != BlendTreeType.Direct &&
+                          values.ContainsKey(tree.blendParameterY))))
+                        SampleBlendTree(tree, values, overrides, resolvePath, state, unsupported);
+                    else if (animatorState.timeParameterActive && values.TryGetValue(animatorState.timeParameter, out var time)
                         && animatorState.motion is AnimationClip timeClip)
-                        ReadClips(new[] { Override(timeClip, overrides) }, resolvePath, state, unsupported, Mathf.Clamp01(value));
+                        ReadClips(new[] { Override(timeClip, overrides) }, resolvePath, state, unsupported, Mathf.Clamp01(time));
                     else if (reached.Contains(animatorState))
                     {
                         var clips = new List<AnimationClip>();
@@ -208,7 +215,7 @@ public static class AnimatorToggleAnalyzer
         return state;
     }
 
-    static void SampleBlendTree(BlendTree tree, string parameter, float value, AnimatorOverrideController overrides,
+    static void SampleBlendTree(BlendTree tree, IReadOnlyDictionary<string, float> values, AnimatorOverrideController overrides,
         Func<string, Transform> resolvePath, ToggleState state, ICollection<string> unsupported)
     {
         var children = tree.children.Where(c => c.motion != null).ToList();
@@ -220,20 +227,21 @@ public static class AnimatorToggleAnalyzer
 
         if (tree.blendType == BlendTreeType.Simple1D)
         {
+            var axisValue = values.TryGetValue(tree.blendParameter, out var x) ? x : 0;
             var sorted = children.OrderBy(c => c.threshold).ToList();
 
             // The two children around the value
-            var upper = sorted.FindIndex(c => c.threshold >= value);
+            var upper = sorted.FindIndex(c => c.threshold >= axisValue);
             var a = upper <= 0 ? sorted[0] : sorted[upper - 1];
             var b = upper < 0 ? sorted[sorted.Count - 1] : sorted[upper];
-            var t = Mathf.Approximately(a.threshold, b.threshold) ? 0 : Mathf.Clamp01((value - a.threshold) / (b.threshold - a.threshold));
+            var t = Mathf.Approximately(a.threshold, b.threshold) ? 0 : Mathf.Clamp01((axisValue - a.threshold) / (b.threshold - a.threshold));
 
             weights = new List<(ChildMotion, float)> { (a, 1 - t), (b, t) };
         }
         else if (tree.blendType != BlendTreeType.Direct)
         {
-            // 2D: the other axis is at rest (0), like an axis puppet moved along one axis only
-            var point = tree.blendParameter == parameter ? new Vector2(value, 0) : new Vector2(0, value);
+            var point = new Vector2(values.TryGetValue(tree.blendParameter, out var x) ? x : 0,
+                values.TryGetValue(tree.blendParameterY, out var y) ? y : 0);
             weights = Weights2D(children, point);
         }
         else
@@ -341,46 +349,42 @@ public static class AnimatorToggleAnalyzer
     }
 
     static IEnumerable<AnimatorState> FindStates(AnimatorStateMachine stateMachine, string parameter, AnimatorControllerParameterType type,
-        float value)
+        float value) => FindStates(stateMachine,
+            new Dictionary<string, float> { [parameter] = value },
+            new Dictionary<string, AnimatorControllerParameterType> { [parameter] = type });
+
+    static IEnumerable<AnimatorState> FindStates(AnimatorStateMachine stateMachine,
+        IReadOnlyDictionary<string, float> values, IReadOnlyDictionary<string, AnimatorControllerParameterType> types)
     {
         var states = new HashSet<AnimatorState>();
-
         void Follow(AnimatorTransitionBase transition)
         {
-            var conditions = transition.conditions.Where(c => c.parameter == parameter).ToList();
-
-            if (conditions.Count == 0 || !conditions.All(c => IsSatisfied(c, type, value)))
+            var conditions = transition.conditions.Where(c => values.ContainsKey(c.parameter)).ToList();
+            if (conditions.Count == 0 || !conditions.All(c =>
+                    types.TryGetValue(c.parameter, out var type) && IsSatisfied(c, type, values[c.parameter])))
                 return;
-
             if (transition.destinationState != null)
                 states.Add(transition.destinationState);
             else if (transition.destinationStateMachine != null && transition.destinationStateMachine.defaultState != null)
                 states.Add(transition.destinationStateMachine.defaultState);
         }
-
         void Visit(AnimatorStateMachine machine)
         {
             foreach (var transition in machine.anyStateTransitions)
                 Follow(transition);
-
             foreach (var transition in machine.entryTransitions)
                 Follow(transition);
-
             foreach (var child in machine.states)
                 foreach (var transition in child.state.transitions)
                     Follow(transition);
-
             foreach (var child in machine.stateMachines)
             {
                 foreach (var transition in machine.GetStateMachineTransitions(child.stateMachine))
                     Follow(transition);
-
                 Visit(child.stateMachine);
             }
         }
-
         Visit(stateMachine);
-
         return states;
     }
 
