@@ -37,6 +37,8 @@ public class ExpressionPuppetAnalyzerTests
             suite.LilToonReportsBothNormalOmissionsWithSecondaryMask();
             suite.LilToonDoesNotWarnForInactiveSecondaryNormal();
             suite.LilToonUsesSecondaryNormalWhenPrimaryTextureMissing();
+            suite.ScaleConstraintBlendsBothSourcesAtPartialWeight();
+            suite.LocalSpaceScaleConstraintUsesLocalSourceAtFullWeight();
             UnityEngine.Debug.Log("EXPRESSION_PUPPET_TESTS_PASS");
             EditorApplication.Exit(0);
         }
@@ -329,6 +331,97 @@ public class ExpressionPuppetAnalyzerTests
             }
         }
         finally { Object.DestroyImmediate(material); Object.DestroyImmediate(root); }
+    }
+
+    [Test]
+    public void LocalSpaceScaleConstraintUsesLocalSourceAtFullWeight()
+    {
+        var root = new GameObject("Local scale test");
+        var source = new GameObject("Local source");
+        var target = new GameObject("Local target");
+        source.transform.SetParent(root.transform);
+        target.transform.SetParent(root.transform);
+        try
+        {
+            var component = target.AddComponent<UnityEngine.Animations.ScaleConstraint>();
+            var converter = target.AddComponent<ScaleConstraintConverter>();
+            converter.Initialize(component);
+            var data = new ConstraintData { Kind = ConstraintKind.Scale, Target = target.transform,
+                SolveInLocalSpace = true, GlobalWeight = 1 };
+            data.Sources.Add(new ConstraintSourceData { Source = source.transform, Weight = 1 });
+            var method = typeof(ConstraintConverterBase<UnityEngine.Animations.ScaleConstraint>)
+                .GetMethod("Convert", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            method.Invoke(converter, new object[] { data, data.Sources, "Local scale test" });
+            Assert.IsNotNull(converter.BlendGraph, "Local-space scale must not switch to global copying at full weight");
+            Assert.IsNull(converter.CopyScale);
+            Assert.AreEqual(0, converter.BlendGraph.GetComponents<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalTransformWrapper>().Length);
+            Assert.AreEqual(1, converter.BlendGraph.GetComponents<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalTransformWrapper>().Length);
+        }
+        finally { Object.DestroyImmediate(root); }
+    }
+
+    [Test]
+    public void ScaleConstraintBlendsBothSourcesAtPartialWeight()
+    {
+        var root = new GameObject("Scale blend test");
+        var first = new GameObject("First source");
+        var second = new GameObject("Second source");
+        var target = new GameObject("Constrained scale");
+        first.transform.SetParent(root.transform);
+        second.transform.SetParent(root.transform);
+        target.transform.SetParent(root.transform);
+        root.transform.localScale = new Vector3(2, 3, 4);
+        target.transform.localRotation = Quaternion.Euler(0, 45, 0);
+        target.transform.localScale = new Vector3(1.5f, 1, 1);
+        first.transform.localScale = new Vector3(2, 1, 3);
+        second.transform.localScale = new Vector3(4, 3, 1);
+        try
+        {
+            var constraint = target.AddComponent<UnityEngine.Animations.ScaleConstraint>();
+            constraint.AddSource(new UnityEngine.Animations.ConstraintSource { sourceTransform = first.transform, weight = 0.25f });
+            constraint.AddSource(new UnityEngine.Animations.ConstraintSource { sourceTransform = second.transform, weight = 0.5f });
+            constraint.scaleAtRest = new Vector3(0.5f, 2, 3);
+            constraint.weight = 0.5f;
+            constraint.constraintActive = true;
+            var converter = target.AddComponent<ScaleConstraintConverter>();
+            converter.Initialize(constraint);
+            converter.UpdateConversion(new ImmediateContext());
+            Assert.IsNotNull(converter.BlendGraph, "A multi-source scale must not copy just one source at full strength");
+            Assert.IsNull(converter.CopyScale);
+            Assert.AreEqual(0, converter.BlendFollowers.Count, "Global scale must not be sampled from unrotated followers");
+            Assert.AreEqual(2, converter.BlendGraph.GetComponents<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalTransformWrapper>().Length);
+            var restToGlobal = converter.BlendGraph.GetComponent<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalScaleToGlobalWrapper>();
+            var resultToLocal = converter.BlendGraph.GetComponent<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalScaleToLocalWrapper>();
+            Assert.IsNotNull(restToGlobal, "The authored rest scale must be converted to global scale");
+            Assert.IsNotNull(resultToLocal, "The blended global scale must be converted for the rotated target");
+            var restBlend = converter.BlendGraph.GetComponents<ProtoFluxValueLerpFloat3Wrapper>()
+                .Single(node => ReferenceEquals(node.Data, resultToLocal.Data.GlobalScale));
+            Assert.AreSame(restToGlobal.Data, restBlend.Data.From,
+                "The authored rest scale must feed the global-space blend");
+            Assert.AreSame(converter.BlendGraph.GetComponent<ProtoFluxValueInputFloat3Wrapper>().Data,
+                restToGlobal.Data.LocalScale);
+            Assert.AreSame(target.transform.GetSlot(),
+                ((ProtoFluxSlotInputWrapper)converter.BlendGraph.GetComponents<ProtoFluxSlotInputWrapper>()
+                    .Single(s => ReferenceEquals(s.Data, resultToLocal.Data.Instance))).Data.Target);
+            var drive = converter.BlendGraph.GetComponent<ProtoFluxFieldDriveFloat3Wrapper>();
+            var proxy = converter.BlendGraph.GetComponent<ProtoFluxFieldDriveProxyFloat3Wrapper>();
+            Assert.IsNotNull(drive);
+            Assert.AreSame(drive.Data, proxy.Data.Node);
+            Assert.IsInstanceOf<SlotScaleField>(proxy.Data.Drive);
+            var field = (SlotScaleField)proxy.Data.Drive;
+            Assert.AreSame(target.transform, field.Transform);
+            Assert.AreEqual("scale-test", field.GetFieldId(new ResoniteLink.Slot
+                { Scale = new ResoniteLink.Field_float3 { ID = "scale-test" } }));
+            var restInputs = converter.BlendGraph.GetComponents<ProtoFluxValueInputFloat3Wrapper>()
+                .Select(input => input.Data.Value).ToArray();
+            CollectionAssert.Contains(restInputs, constraint.scaleAtRest,
+                "The authored rest scale must be used even when the target's current scale differs");
+            var weights = converter.BlendGraph.GetComponents<ProtoFluxValueInputFloatWrapper>()
+                .Select(input => input.Data.Value).ToArray();
+            CollectionAssert.Contains(weights, 2f / 3f, "Both sources must contribute their relative weights");
+            CollectionAssert.Contains(weights, 0.375f, "Source sum and global weight must blend with rest scale");
+        }
+        finally { Object.DestroyImmediate(root); }
     }
 
     [Test]

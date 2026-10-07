@@ -50,6 +50,8 @@ public class VRCConstraintConverter : ConstraintConverterBase<Component>
         data.PositionOffset = ReflectionAccessor.Get(target, "PositionOffset", Vector3.zero);
         data.RotationOffset = ReflectionAccessor.Get(target, "RotationOffset", Vector3.zero);
         data.ScaleOffset = ReflectionAccessor.Get(target, "ScaleOffset", Vector3.one);
+        if (data.Kind == ConstraintKind.Scale)
+            data.RestScale = ReflectionAccessor.Get(target, "ScaleAtRest", data.Target.localScale);
 
         if (ReflectionAccessor.Has(target, "PositionAtRest"))
             data.RestPosition = ReflectionAccessor.Get(target, "PositionAtRest", Vector3.zero);

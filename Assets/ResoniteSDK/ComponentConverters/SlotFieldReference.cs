@@ -40,6 +40,13 @@ public class SlotPositionField : SlotFieldReference, FrooxEngine.IField<Vector3>
 }
 
 [Serializable]
+public class SlotScaleField : SlotFieldReference, FrooxEngine.IField<Vector3>
+{
+    public SlotScaleField(Transform transform) : base(transform) { }
+    public override string GetFieldId(ResoniteLink.Slot slot) => slot.Scale.ID;
+}
+
+[Serializable]
 public class SlotRotationField : SlotFieldReference, FrooxEngine.IField<Quaternion>
 {
     public SlotRotationField(Transform transform) : base(transform) { }

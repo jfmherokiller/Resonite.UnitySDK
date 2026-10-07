@@ -128,6 +128,7 @@ public class ScaleConstraintConverter : ConstraintConverterBase<ScaleConstraint>
             Target = target.transform,
             AllScaleAxes = ConstraintData.IsAllAxes(target.scalingAxis),
             ScaleOffset = target.scaleOffset,
+            RestScale = target.scaleAtRest,
         };
 
         ConstraintData.ReadSources(target, data);

@@ -59,6 +59,7 @@ public class ConstraintData
     /// </summary>
     public Vector3? RestPosition;
     public Quaternion? RestRotation;
+    public Vector3? RestScale;
 
     public Vector3 PositionOffset;
 
@@ -125,12 +126,11 @@ public class ConstraintData
 ///   constrained object copies the anchor's global transform, and its local position/rotation is copied to the
 ///   constrained object with ValueCopy. Local space constraints copy the source's local values directly.
 ///
-/// Parent, Position & Rotation constraints with multiple sources, partial weights or only some position axes are
-/// converted with ProtoFlux (see <see cref="ProtoFluxGraph"/>): each source gets a follower next to the constrained
-/// object, and their local poses are blended by weight (and with the rest pose) and drive the constrained object.
+/// Parent, Position, Rotation and Scale constraints with multiple sources or partial weights are converted with
+/// ProtoFlux. Scale blends source scales in global space, then converts to the target's local scale.
 ///
 /// Constraints frozen to world or affecting only some rotation/scale axes are reported and skipped.
-/// Aim, LookAt and Scale constraints use the source with the highest weight at full strength.
+/// Aim and LookAt constraints use the source with the highest weight at full strength.
 /// </summary>
 public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
     where T : Component
@@ -249,7 +249,12 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
                 return Method.LookAt;
 
             case ConstraintKind.Scale:
-                ReportBlend(blends, name);
+                if (blends || data.SolveInLocalSpace)
+                {
+                    SetupBlend(data, sources);
+                    ReportScaleOffset(data);
+                    return Method.Blend;
+                }
                 SetupScale(data, source);
                 return Method.CopyScale;
         }
@@ -332,6 +337,11 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
         wrapper.Data.Source = source.Source.GetSlot();
         wrapper.Data.NonUniform = true;
 
+        ReportScaleOffset(data);
+    }
+
+    void ReportScaleOffset(ConstraintData data)
+    {
         if (data.ScaleOffset != Vector3.one)
             _report.Warning("scaleoffset", $"Scale offset on {data.Target.name} is not supported and will be ignored.", Target);
     }
@@ -442,7 +452,12 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
         var target = data.Target;
         var followers = new List<Transform>();
 
-        if (data.SolveInLocalSpace)
+        if (data.Kind == ConstraintKind.Scale)
+        {
+            ClearObjects(BlendAnchors, 0);
+            ClearObjects(BlendFollowers, 0);
+        }
+        else if (data.SolveInLocalSpace)
         {
             // The local values of the sources can be blended directly
             ClearObjects(BlendAnchors, 0);
@@ -496,12 +511,25 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
         var graph = new ProtoFluxGraph(BlendGraph);
         graph.Begin();
 
-        var poses = followers.Select(f => graph.LocalTransform(f)).ToList();
-
-        // Unity & VRChat blend the remaining weight (when the source weights add up to less than 1) with the rest pose,
-        // and the global weight blends between the rest pose and the result
+        // Unity & VRChat blend the remaining source weight and global weight with the rest pose
         var strength = Mathf.Clamp01(sources.Sum(s => s.Weight)) * data.GlobalWeight;
 
+        if (data.Kind == ConstraintKind.Scale)
+        {
+            var rest = graph.Constant(data.RestScale ?? target.localScale);
+            var values = sources.Select(s => data.SolveInLocalSpace
+                ? graph.LocalScale(s.Source) : graph.GlobalScale(s.Source)).ToList();
+            if (!data.SolveInLocalSpace)
+                rest = graph.LocalScaleToGlobal(target, rest);
+            var blended = graph.WeightedBlend(rest,
+                values.Select((value, i) => (value, sources[i].Weight)).ToList(), strength);
+            graph.Drive(data.SolveInLocalSpace ? blended : graph.GlobalScaleToLocal(target, blended),
+                new SlotScaleField(target));
+            graph.End();
+            return;
+        }
+
+        var poses = followers.Select(f => graph.LocalTransform(f)).ToList();
         if (data.Kind != ConstraintKind.Rotation)
         {
             var rest = data.RestPosition ?? target.localPosition;

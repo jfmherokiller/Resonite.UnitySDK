@@ -112,6 +112,36 @@ public class ProtoFluxGraph
         return (node.LocalPosition, node.LocalRotation);
     }
 
+    public INodeValueOutput<Vector3> LocalScale(Transform transform)
+    {
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalTransformWrapper>().Data;
+        node.Instance = Slot(transform);
+        return node.LocalScale;
+    }
+
+    public INodeValueOutput<Vector3> GlobalScale(Transform transform)
+    {
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalTransformWrapper>().Data;
+        node.Instance = Slot(transform);
+        return node.GlobalScale;
+    }
+
+    public INodeValueOutput<Vector3> LocalScaleToGlobal(Transform transform, INodeValueOutput<Vector3> scale)
+    {
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalScaleToGlobalWrapper>().Data;
+        node.Instance = Slot(transform);
+        node.LocalScale = scale;
+        return node;
+    }
+
+    public INodeValueOutput<Vector3> GlobalScaleToLocal(Transform transform, INodeValueOutput<Vector3> scale)
+    {
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalScaleToLocalWrapper>().Data;
+        node.Instance = Slot(transform);
+        node.GlobalScale = scale;
+        return node;
+    }
+
     #endregion
 
     #region MATH
@@ -157,7 +187,10 @@ public class ProtoFluxGraph
     /// Weighted average of the values (by chaining lerps), blended from the rest value by the strength
     /// </summary>
     public INodeValueOutput<Vector3> WeightedBlend(Vector3 rest, IReadOnlyList<(INodeValueOutput<Vector3> value, float weight)> values,
-        float strength)
+        float strength) => WeightedBlend(Constant(rest), values, strength);
+
+    public INodeValueOutput<Vector3> WeightedBlend(INodeValueOutput<Vector3> rest,
+        IReadOnlyList<(INodeValueOutput<Vector3> value, float weight)> values, float strength)
     {
         INodeValueOutput<Vector3> result = null;
         var total = 0f;
@@ -168,7 +201,7 @@ public class ProtoFluxGraph
             total += weight;
         }
 
-        return strength < 0.999f ? Lerp(Constant(rest), result, Constant(Mathf.Clamp01(strength))) : result;
+        return strength < 0.999f ? Lerp(rest, result, Constant(Mathf.Clamp01(strength))) : result;
     }
 
     /// <summary>
