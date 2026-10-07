@@ -29,6 +29,9 @@ public class ExpressionPuppetAnalyzerTests
             suite.FourAxisDefaultOnlyAnimationIsReported();
             suite.FourAxisDiagonalDrivesUpAndRightWithoutDrivingDownOrLeft();
             suite.TwoAxisDiagonalDrivesBothParameters();
+            suite.FractionalFloatOptionsCreateDistinctSelector();
+            suite.NearbyFloatOptionsCreateDistinctSelector();
+            suite.MToonPannersAreRemovedWhenScrollStops();
             UnityEngine.Debug.Log("EXPRESSION_PUPPET_TESTS_PASS");
             EditorApplication.Exit(0);
         }
@@ -39,7 +42,7 @@ public class ExpressionPuppetAnalyzerTests
         }
     }
 
-    public enum FakeControlType { TwoAxisPuppet, FourAxisPuppet, RadialPuppet }
+    public enum FakeControlType { TwoAxisPuppet, FourAxisPuppet, RadialPuppet, Toggle, Button }
     public enum FakeValueType { Float }
     public class FakeParameter { public string name; public FakeValueType valueType; public float defaultValue; }
     public class FakeParameterAsset { public FakeParameter[] parameters; }
@@ -47,6 +50,8 @@ public class ExpressionPuppetAnalyzerTests
     {
         public string name;
         public FakeControlType type;
+        public FakeParameter parameter;
+        public float value;
         public FakeParameter[] subParameters;
     }
     public class FakeMenu : ScriptableObject { public List<FakeControl> controls = new List<FakeControl>(); }
@@ -208,6 +213,117 @@ public class ExpressionPuppetAnalyzerTests
             Object.DestroyImmediate(menu);
             Object.DestroyImmediate(root);
         }
+    }
+
+    [Test]
+    public void FractionalFloatOptionsCreateDistinctSelector() =>
+        AssertFloatOptionsCreateDistinctSelector(new[] { 0.1f, 0.2f, 0.3f }, 0.2f);
+
+    [Test]
+    public void NearbyFloatOptionsCreateDistinctSelector() =>
+        AssertFloatOptionsCreateDistinctSelector(new[] { 0.49f, 0.4900001f }, 0.4900001f);
+
+    void AssertFloatOptionsCreateDistinctSelector(float[] values, float defaultValue)
+    {
+        var root = new GameObject("Avatar");
+        var target = new GameObject("Target");
+        target.transform.SetParent(root.transform);
+        var menu = ScriptableObject.CreateInstance<FakeMenu>();
+        var controller = new AnimatorController();
+        var tree = new BlendTree { blendType = BlendTreeType.Simple1D, blendParameter = "Style", useAutomaticThresholds = false };
+        var clips = new List<AnimationClip>();
+        var items = new List<GameObject>();
+        var selectors = new List<GameObject>();
+        try
+        {
+            controller.AddParameter("Style", AnimatorControllerParameterType.Float);
+            controller.AddLayer("FX");
+            foreach (var value in values)
+            {
+                var clip = new AnimationClip();
+                AnimationUtility.SetEditorCurve(clip, EditorCurveBinding.FloatCurve("Target", typeof(GameObject), "m_IsActive"),
+                    AnimationCurve.Constant(0, 1, clips.Count % 2));
+                clips.Add(clip);
+                tree.AddChild(clip, value);
+                menu.controls.Add(new FakeControl { name = "Style " + value, type = FakeControlType.Toggle,
+                    parameter = new FakeParameter { name = "Style" }, value = value });
+            }
+            CollectionAssert.AreEqual(values, tree.children.Select(c => c.threshold).ToArray());
+            controller.layers[0].stateMachine.AddState("Pose").motion = tree;
+            for (var index = 0; index < values.Length; index++)
+            {
+                var sampled = AnimatorToggleAnalyzer.SampleFloat(new[] { controller }, "Style", values[index],
+                    path => path == "Target" ? target.transform : root.transform, new HashSet<string>());
+                Assert.AreEqual(index % 2 == 1, sampled.Bools[$"active:{target.transform.GetInstanceID()}"].value,
+                    "Nearby Float thresholds must select their own animated state");
+            }
+            var source = new ExpressionMenuSource { ResolvePath = path => path == "Target" ? target.transform : root.transform };
+            source.Menus.Add((menu, new string[0]));
+            source.Parameters.Add(new FakeParameterAsset { parameters = new[] {
+                new FakeParameter { name = "Style", valueType = FakeValueType.Float, defaultValue = defaultValue } } });
+            source.Controllers.Add(controller);
+            VRCExpressionMenuToggles.Apply(root.transform, new[] { source }, root.transform, items, selectors,
+                null, new ConversionReporter());
+            var selector = selectors.Find(s => s.name.Contains("Selector Style"));
+            Assert.IsNotNull(selector, "Distinct Float options must not collapse into one toggle");
+            Assert.AreEqual(System.Array.IndexOf(values.OrderBy(v => v).ToArray(), defaultValue) + 1,
+                selector.GetComponent<ValueMultiDriverIntWrapper>().Data.Value,
+                "The nonzero default must retain its own selector index after the off state");
+            var cycles = items.Select(i => i.GetComponent<ButtonValueCycleIntWrapper>())
+                .Where(c => c != null).ToArray();
+            Assert.AreEqual(values.Length, cycles.Length);
+            Assert.AreEqual(values.Length, cycles.Select(c => c.Data.Values[0]).Distinct().Count(),
+                "Each authored Float option needs a distinct selector index");
+        }
+        finally
+        {
+            VRCExpressionMenuToggles.Clear(items, selectors);
+            foreach (var clip in clips) Object.DestroyImmediate(clip);
+            Object.DestroyImmediate(tree);
+            Object.DestroyImmediate(controller);
+            Object.DestroyImmediate(menu);
+            Object.DestroyImmediate(root);
+        }
+    }
+
+    [Test]
+    public void MToonPannersAreRemovedWhenScrollStops()
+    {
+        var root = new GameObject("MToon lifecycle");
+        var material = new Material(Shader.Find("Standard"));
+        try
+        {
+            var xiexe = root.AddComponent<FrooxEngine.XiexeToonMaterialWrapper>().Data;
+            xiexe.MainTexture = null;
+            xiexe.NormalMap = null;
+            xiexe.EmissionMap = null;
+            xiexe.OcclusionMap = null;
+            xiexe.ShadowRampMask = null;
+            foreach (var type in new[] { typeof(MToonConverter), typeof(MToon10Converter) })
+            foreach (var hasScroll in new[] { false, true })
+            {
+                var speedProperty = type == typeof(MToonConverter) ? "_UvAnimScrollX" : "_UvAnimScrollXSpeed";
+                material.SetFloat(speedProperty, hasScroll ? 1f : 0f);
+                var converter = root.AddComponent(type);
+                var fields = type == typeof(MToonConverter)
+                    ? new[] { "MainTexturePanner", "NormalMapPanner", "EmissionMapPanner", "OcclusionMapPanner", "ShadowRampMaskPanner" }
+                    : new[] { "MainTexturePanner", "NormalMapPanner", "EmissionMapPanner", "ShadowRampMaskPanner" };
+                foreach (var fieldName in fields)
+                {
+                    var panner = root.AddComponent<FrooxEngine.Panner2DWrapper>();
+                    panner.Data.Enabled = true;
+                    type.GetField(fieldName, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                        .SetValue(converter, panner);
+                }
+                var method = type.GetMethod("UpdateUvScrollPanners",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                method.Invoke(converter, new object[] { material, xiexe });
+                Assert.AreEqual(0, root.GetComponents<FrooxEngine.Panner2DWrapper>().Length,
+                    type.Name + " left stale panners when scrolling or their target texture disappeared (scroll=" + hasScroll + ")");
+                Object.DestroyImmediate(converter);
+            }
+        }
+        finally { Object.DestroyImmediate(material); Object.DestroyImmediate(root); }
     }
 
     class FloatFieldTarget : ToggleTarget<float>

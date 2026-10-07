@@ -39,29 +39,38 @@ public class MToonConverter : ResoniteMaterialConverter
         var canConvertScroll = hasScroll && !hasMask && !hasRotation;
         if (!canConvertScroll)
         {
+            ConverterComponentHelper.Remove(ref MainTexturePanner);
+            ConverterComponentHelper.Remove(ref NormalMapPanner);
+            ConverterComponentHelper.Remove(ref EmissionMapPanner);
+            ConverterComponentHelper.Remove(ref OcclusionMapPanner);
+            ConverterComponentHelper.Remove(ref ShadowRampMaskPanner);
             return;
         }
 
         if (xiexe.MainTexture != null)
-        {
             UpdatePanner(ref MainTexturePanner, xiexe.MainTextureOffset_Element.Member, speed, xiexe.MainTextureOffset);
-        }
+        else
+            ConverterComponentHelper.Remove(ref MainTexturePanner);
+
         if (xiexe.NormalMap != null)
-        {
             UpdatePanner(ref NormalMapPanner, xiexe.NormalMapOffset_Element.Member, speed, xiexe.NormalMapOffset);
-        }
+        else
+            ConverterComponentHelper.Remove(ref NormalMapPanner);
+
         if (xiexe.EmissionMap != null)
-        {
             UpdatePanner(ref EmissionMapPanner, xiexe.EmissionMapOffset_Element.Member, speed, xiexe.EmissionMapOffset);
-        }
+        else
+            ConverterComponentHelper.Remove(ref EmissionMapPanner);
+
         if (xiexe.OcclusionMap != null)
-        {
             UpdatePanner(ref OcclusionMapPanner, xiexe.OcclusionMapOffset_Element.Member, speed, xiexe.OcclusionMapOffset);
-        }
+        else
+            ConverterComponentHelper.Remove(ref OcclusionMapPanner);
+
         if (xiexe.ShadowRampMask != null)
-        {
             UpdatePanner(ref ShadowRampMaskPanner, xiexe.ShadowRampMaskOffset_Element.Member, speed, xiexe.ShadowRampMaskOffset);
-        }
+        else
+            ConverterComponentHelper.Remove(ref ShadowRampMaskPanner);
     }
 
     private void UpdatePanner(

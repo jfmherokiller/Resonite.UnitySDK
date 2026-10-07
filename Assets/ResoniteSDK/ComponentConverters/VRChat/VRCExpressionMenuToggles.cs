@@ -231,12 +231,9 @@ public static class VRCExpressionMenuToggles
                     report.Info("puppettoggle:" + parameter, $"Menu parameter {parameter} is used by both a radial puppet and toggles, " +
                         $"only the puppet is converted.", owner);
             }
-            // Float parameters are also used for mutually exclusive options (e.g. an outfit picker), typically
-            // because a 1D blend tree - which only accepts float parameters - selects between them. BuildSelector
-            // already handles this shape (distinct rounded values, one option active at a time); without this,
-            // every option past the first only gets a link to the first option's own toggle.
-            else if ((definition.type == "Int" || definition.type == "Float")
-                && options.Select(o => Mathf.RoundToInt(o.Value)).Distinct().Count() > 1)
+            // Float selector identities must match the exact values used to sample the animator.
+            else if (definition.type == "Float" && options.Select(o => o.Value).Distinct().Count() > 1
+                || definition.type == "Int" && options.Select(o => Mathf.RoundToInt(o.Value)).Distinct().Count() > 1)
                 BuildSelector(owner, source, controllers, parameter, definition.defaultValue, options, claimed, unsupported,
                     context, report, nextItem, nextSelector);
             else
@@ -403,7 +400,7 @@ public static class VRCExpressionMenuToggles
             return;
         }
 
-        int IndexOf(float value) => distinctValues.FindIndex(v => Mathf.Approximately(v, value));
+        int IndexOf(float value) => distinctValues.IndexOf(value);
 
         var defaultIndex = IndexOf(defaultValue);
         var offIndex = IndexOf(0);
@@ -436,7 +433,7 @@ public static class VRCExpressionMenuToggles
         }
 
         // The default value can't be reached through the options otherwise (VRChat only restores it on reset)
-        if (!Mathf.Approximately(defaultValue, 0) && !options.Any(o => Mathf.Approximately(o.Value, defaultValue)))
+        if (defaultValue != 0f && !options.Any(o => o.Value == defaultValue))
             AvatarToggleBuilder.BuildSelectorOption(nextItem(options[0].Folders, $"{parameter}: Default", "Option"), indexField, defaultIndex);
     }
 

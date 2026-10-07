@@ -234,7 +234,7 @@ public static class AnimatorToggleAnalyzer
             var upper = sorted.FindIndex(c => c.threshold >= axisValue);
             var a = upper <= 0 ? sorted[0] : sorted[upper - 1];
             var b = upper < 0 ? sorted[sorted.Count - 1] : sorted[upper];
-            var t = Mathf.Approximately(a.threshold, b.threshold) ? 0 : Mathf.Clamp01((axisValue - a.threshold) / (b.threshold - a.threshold));
+            var t = a.threshold == b.threshold ? 0 : Mathf.Clamp01((axisValue - a.threshold) / (b.threshold - a.threshold));
 
             weights = new List<(ChildMotion, float)> { (a, 1 - t), (b, t) };
         }
