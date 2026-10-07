@@ -290,20 +290,26 @@ public class LilToonXiexeConverter
  
     private void UpdateNormal()
     {
-        // TODO: If 2nd normal map support is added, bake into a single normal map
-        if (Material.GetFloat("_UseBumpMap") != 0)
+        var primaryNormal = Material.GetTexture("_BumpMap");
+        var secondaryNormal = Material.GetTexture("_Bump2ndMap");
+        var usePrimary = Material.GetFloat("_UseBumpMap") != 0 && primaryNormal != null;
+        var useSecondary = Material.GetFloat("_UseBump2ndMap") != 0 && secondaryNormal != null;
+        if (useSecondary && Material.GetTexture("_Bump2ndScaleMask") != null)
+            UnityEngine.Debug.LogWarning($"lilToon secondary normal strength mask on {Material.name} is omitted because XiexeToon has no per-pixel normal strength.");
+        if (usePrimary)
         {
-            Xiexe.NormalMap = Context.GetITexture2D(Material.GetTexture("_BumpMap"));
+            if (useSecondary)
+                UnityEngine.Debug.LogWarning($"lilToon secondary normal map on {Material.name} is omitted because XiexeToon has one normal map slot.");
+            Xiexe.NormalMap = Context.GetITexture2D(primaryNormal);
             Xiexe.NormalMapOffset = Material.GetTextureOffset("_BumpMap");
             Xiexe.NormalMapScale = Material.GetTextureScale("_BumpMap");
             Xiexe.NormalScale = Material.GetFloat("_BumpScale");
             Xiexe.NormalUV = 0;
             return;
         }
-        if (Material.GetFloat("_UseBump2ndMap") != 0)
+        if (useSecondary)
         {
-            // TODO: _Bump2ndScaleMask is not supported, so the 2nd normal map's strength may differ from lilToon. Consider baking if this causes issues.
-            Xiexe.NormalMap = Context.GetITexture2D(Material.GetTexture("_Bump2ndMap"));
+            Xiexe.NormalMap = Context.GetITexture2D(secondaryNormal);
             Xiexe.NormalMapOffset = Material.GetTextureOffset("_Bump2ndMap");
             Xiexe.NormalMapScale = Material.GetTextureScale("_Bump2ndMap");
             Xiexe.NormalScale = Material.GetFloat("_Bump2ndScale");

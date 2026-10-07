@@ -32,6 +32,11 @@ public class ExpressionPuppetAnalyzerTests
             suite.FractionalFloatOptionsCreateDistinctSelector();
             suite.NearbyFloatOptionsCreateDistinctSelector();
             suite.MToonPannersAreRemovedWhenScrollStops();
+            suite.LilToonReportsDroppedSecondaryNormalLayer();
+            suite.LilToonReportsIgnoredSecondaryNormalStrengthMask();
+            suite.LilToonReportsBothNormalOmissionsWithSecondaryMask();
+            suite.LilToonDoesNotWarnForInactiveSecondaryNormal();
+            suite.LilToonUsesSecondaryNormalWhenPrimaryTextureMissing();
             UnityEngine.Debug.Log("EXPRESSION_PUPPET_TESTS_PASS");
             EditorApplication.Exit(0);
         }
@@ -326,6 +331,98 @@ public class ExpressionPuppetAnalyzerTests
         finally { Object.DestroyImmediate(material); Object.DestroyImmediate(root); }
     }
 
+    [Test]
+    public void LilToonReportsDroppedSecondaryNormalLayer() =>
+        AssertLilToonNormalWarning(true, false, "secondary normal map");
+
+    [Test]
+    public void LilToonReportsIgnoredSecondaryNormalStrengthMask() =>
+        AssertLilToonNormalWarning(false, true, "strength mask");
+
+    [Test]
+    public void LilToonReportsBothNormalOmissionsWithSecondaryMask() =>
+        AssertLilToonNormalWarning(true, true, "secondary normal strength mask");
+
+    [Test]
+    public void LilToonDoesNotWarnForInactiveSecondaryNormal() =>
+        AssertLilToonNormalWarning(true, true, null, false);
+
+    void AssertLilToonNormalWarning(bool usePrimary, bool useMask, string expected, bool useSecondary = true)
+    {
+        var root = new GameObject("Normal layers");
+        var material = new Material(Shader.Find("lilToon"));
+        var primary = new Texture2D(2, 2);
+        var secondary = new Texture2D(2, 2);
+        var mask = new Texture2D(2, 2);
+        var warnings = new List<string>();
+        Application.LogCallback onLog = (message, trace, type) => {
+            if (type == LogType.Warning) warnings.Add(message);
+        };
+        Application.logMessageReceived += onLog;
+        try
+        {
+            material.SetFloat("_UseBumpMap", usePrimary ? 1 : 0);
+            material.SetFloat("_UseBump2ndMap", useSecondary ? 1 : 0);
+            material.SetTexture("_BumpMap", primary);
+            material.SetTexture("_Bump2ndMap", secondary);
+            if (useMask) material.SetTexture("_Bump2ndScaleMask", mask);
+            var context = new ImmediateContext();
+            var converter = new LilToonXiexeConverter(root.AddComponent<FrooxEngine.XiexeToonMaterialWrapper>().Data,
+                material, context, new LilToonAssetCache());
+            typeof(LilToonXiexeConverter).GetMethod("UpdateNormal",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(converter, null);
+            Assert.AreSame(usePrimary ? primary : secondary, context.LastTexture2D);
+            var relevant = warnings.Where(w => w.Contains(material.name) && w.Contains("lilToon secondary normal")).ToArray();
+            if (expected == null)
+                Assert.IsEmpty(relevant, "Inactive secondary layers must not report a conversion loss");
+            else
+                Assert.IsTrue(relevant.Any(w => w.Contains(expected)),
+                    "Unsupported lilToon normal layers or masks must be reported for the affected material");
+            Assert.AreEqual(usePrimary && useSecondary,
+                relevant.Any(w => w.Contains("secondary normal map on " + material.name)));
+            Assert.AreEqual(useMask && useSecondary,
+                relevant.Any(w => w.Contains("secondary normal strength mask on " + material.name)));
+        }
+        finally
+        {
+            Application.logMessageReceived -= onLog;
+            Object.DestroyImmediate(mask);
+            Object.DestroyImmediate(primary);
+            Object.DestroyImmediate(secondary);
+            Object.DestroyImmediate(material);
+            Object.DestroyImmediate(root);
+        }
+    }
+
+    [Test]
+    public void LilToonUsesSecondaryNormalWhenPrimaryTextureMissing()
+    {
+        var root = new GameObject("Normal fallback");
+        var material = new Material(Shader.Find("lilToon"));
+        var secondary = new Texture2D(2, 2);
+        try
+        {
+            material.SetFloat("_UseBumpMap", 1);
+            material.SetFloat("_UseBump2ndMap", 1);
+            material.SetFloat("_Bump2ndScale", 0.75f);
+            material.SetTexture("_Bump2ndMap", secondary);
+            var context = new ImmediateContext();
+            var xiexe = root.AddComponent<FrooxEngine.XiexeToonMaterialWrapper>().Data;
+            var converter = new LilToonXiexeConverter(xiexe, material, context, new LilToonAssetCache());
+            typeof(LilToonXiexeConverter).GetMethod("UpdateNormal",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(converter, null);
+            Assert.AreSame(secondary, context.LastTexture2D,
+                "A missing primary texture must not suppress an available secondary normal map");
+            Assert.AreEqual(0.75f, xiexe.NormalScale);
+        }
+        finally
+        {
+            Object.DestroyImmediate(secondary);
+            Object.DestroyImmediate(material);
+            Object.DestroyImmediate(root);
+        }
+    }
+
     class FloatFieldTarget : ToggleTarget<float>
     {
         readonly FrooxEngine.IField<float> _field;
@@ -409,6 +506,7 @@ public class ExpressionPuppetAnalyzerTests
 
     class ImmediateContext : IConversionContext
     {
+        public Texture LastTexture2D;
         public string GetUniqueMessageId(string prefix) => prefix;
         public string GetTransformSlotId(Transform transform) => null;
         public string GetId(FrooxEngine.IWorldElement o) => null;
@@ -419,7 +517,7 @@ public class ExpressionPuppetAnalyzerTests
         public void RunOnConverted(Component component, System.Action action) => action();
         public FrooxEngine.IAssetProvider<FrooxEngine.Mesh> GetMesh(Mesh mesh, AssetMessagePostProcessor p = null) => null;
         public FrooxEngine.IAssetProvider<FrooxEngine.ITexture> GetITexture(Texture texture, AssetMessagePostProcessor p = null) => null;
-        public FrooxEngine.IAssetProvider<FrooxEngine.ITexture2D> GetITexture2D(Texture texture, AssetMessagePostProcessor p = null) => null;
+        public FrooxEngine.IAssetProvider<FrooxEngine.ITexture2D> GetITexture2D(Texture texture, AssetMessagePostProcessor p = null) { LastTexture2D = texture; return null; }
         public FrooxEngine.IAssetProvider<FrooxEngine.Texture2D> GetTexture2D(Texture2D texture, AssetMessagePostProcessor p = null) => null;
         public FrooxEngine.IAssetProvider<FrooxEngine.Cubemap> GetCubemap(Cubemap cubemap, AssetMessagePostProcessor p = null) => null;
         public FrooxEngine.IAssetProvider<FrooxEngine.AudioClip> GetAudioClip(AudioClip audioClip, AssetMessagePostProcessor p = null) => null;
