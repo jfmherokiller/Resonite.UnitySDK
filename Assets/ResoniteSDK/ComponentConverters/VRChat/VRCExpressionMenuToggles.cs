@@ -436,10 +436,16 @@ public static class VRCExpressionMenuToggles
         var value = AvatarToggleBuilder.BuildPuppet(nextSelector($"[Resonite] Puppet {parameter}"), Mathf.Clamp(defaultValue, min, 1),
             samples, context);
 
-        // Each place the puppet appears in gets a submenu with the steps
+        var panel = nextSelector($"[Resonite] Continuous Puppet {parameter}");
+        panel.transform.localPosition = ReflectionAccessor.Get(owner, "ViewPosition", new Vector3(0, 1.5f, 0))
+            + new Vector3(0, -0.2f, 0.55f);
+        panel.transform.localRotation = Quaternion.Euler(0, 180, 0);
+        AvatarToggleBuilder.BuildContinuousSlider(panel, value, Mathf.Clamp(defaultValue, min, 1), min, 1);
+
         foreach (var puppet in puppets)
         {
             var folders = puppet.Folders.Append(puppet.Label).ToArray();
+            AvatarToggleBuilder.BuildContinuousSliderToggle(nextItem(folders, "Drag (continuous)", "Puppet Slider"), panel);
 
             foreach (var step in PUPPET_STEPS.Select(s => Mathf.Lerp(puppet.Min, 1, s)))
                 AvatarToggleBuilder.BuildPuppetStep(nextItem(folders, $"{Mathf.RoundToInt(step * 100)}%", "Puppet Step"), value, step);

@@ -15,6 +15,9 @@ public class ExpressionPuppetAnalyzerTests
             suite.TwoAxisDiagonalSamplesBothParameters();
             suite.AxisControlIsCollectedAsOneSharedControl();
             suite.ButtonGraphConnectsPressAndRelease();
+            suite.ContinuousSliderDrivesPuppetValue();
+            suite.MenuItemOpensContinuousSlider();
+            suite.RadialMenuOffersDraggableSlider();
             suite.FourAxisDiagonalDrivesUpAndRightWithoutDrivingDownOrLeft();
             suite.TwoAxisDiagonalDrivesBothParameters();
             UnityEngine.Debug.Log("EXPRESSION_PUPPET_TESTS_PASS");
@@ -27,8 +30,10 @@ public class ExpressionPuppetAnalyzerTests
         }
     }
 
-    public enum FakeControlType { TwoAxisPuppet }
-    public class FakeParameter { public string name; }
+    public enum FakeControlType { TwoAxisPuppet, RadialPuppet }
+    public enum FakeValueType { Float }
+    public class FakeParameter { public string name; public FakeValueType valueType; public float defaultValue; }
+    public class FakeParameterAsset { public FakeParameter[] parameters; }
     public class FakeControl
     {
         public string name;
@@ -87,6 +92,98 @@ public class ExpressionPuppetAnalyzerTests
             Assert.IsTrue(System.Array.Exists(writes, w => ReferenceEquals(w.Data, events.Data.Released)));
         }
         finally { Object.DestroyImmediate(item); }
+    }
+
+    [Test]
+    public void ContinuousSliderDrivesPuppetValue()
+    {
+        var panel = new GameObject("Continuous Puppet");
+        try
+        {
+            var value = panel.AddComponent<ValueMultiDriverFloatWrapper>().Data.Value_Element.Member;
+            var method = typeof(AvatarToggleBuilder).GetMethod("BuildContinuousSlider");
+            Assert.IsNotNull(method, "Radial puppets need a draggable slider, not only discrete menu steps");
+            method.Invoke(null, new object[] { panel, value, 0.4f, 0f, 1f });
+            var slider = panel.GetComponentInChildren<FrooxEngine.UIX.SliderWrapper<float>>();
+            Assert.IsNotNull(slider);
+            Assert.AreEqual(0.4f, slider.Data.Value);
+            Assert.AreEqual(0f, slider.Data.Min);
+            Assert.AreEqual(1f, slider.Data.Max);
+            var copy = panel.GetComponentInChildren<ValueCopyFloatWrapper>();
+            Assert.IsNotNull(copy);
+            Assert.AreSame(slider.Data.Value_Element.Member, copy.Data.Source);
+            Assert.AreSame(value, copy.Data.Target);
+            Assert.IsNotNull(panel.GetComponent<FrooxEngine.UIX.CanvasWrapper>());
+        }
+        finally { Object.DestroyImmediate(panel); }
+    }
+
+    [Test]
+    public void MenuItemOpensContinuousSlider()
+    {
+        var menu = new GameObject("Menu Item");
+        var panel = new GameObject("Slider Panel");
+        try
+        {
+            menu.AddComponent<FrooxEngine.ContextMenuItemSourceWrapper>();
+            var method = typeof(AvatarToggleBuilder).GetMethod("BuildContinuousSliderToggle");
+            Assert.IsNotNull(method, "The draggable slider must be reachable from the expression menu");
+            method.Invoke(null, new object[] { menu, panel });
+            Assert.IsFalse(panel.activeSelf);
+            var toggle = menu.GetComponent<FrooxEngine.ButtonToggleWrapper>();
+            Assert.IsNotNull(toggle);
+            Assert.AreEqual(new SlotActiveField(panel.transform), toggle.Data.TargetValue);
+        }
+        finally { Object.DestroyImmediate(menu); Object.DestroyImmediate(panel); }
+    }
+
+    [Test]
+    public void RadialMenuOffersDraggableSlider()
+    {
+        var root = new GameObject("Avatar");
+        var target = new GameObject("Target");
+        target.transform.SetParent(root.transform);
+        var menu = ScriptableObject.CreateInstance<FakeMenu>();
+        var controller = new AnimatorController();
+        var tree = new BlendTree { blendType = BlendTreeType.Simple1D, blendParameter = "Dial" };
+        var clip = new AnimationClip();
+        var items = new List<GameObject>();
+        var selectors = new List<GameObject>();
+        try
+        {
+            controller.AddParameter("Dial", AnimatorControllerParameterType.Float);
+            controller.AddLayer("FX");
+            AnimationUtility.SetEditorCurve(clip, EditorCurveBinding.FloatCurve("Target", typeof(GameObject), "m_IsActive"),
+                AnimationCurve.Constant(0, 1, 1));
+            tree.AddChild(clip, 0);
+            tree.AddChild(clip, 1);
+            controller.layers[0].stateMachine.AddState("Pose").motion = tree;
+            menu.controls.Add(new FakeControl { name = "Dial", type = FakeControlType.RadialPuppet,
+                subParameters = new[] { new FakeParameter { name = "Dial" } } });
+            var source = new ExpressionMenuSource { ResolvePath = path => path == "Target" ? target.transform : root.transform };
+            source.Menus.Add((menu, new string[0]));
+            source.Parameters.Add(new FakeParameterAsset { parameters = new[] {
+                new FakeParameter { name = "Dial", valueType = FakeValueType.Float, defaultValue = 0.4f } } });
+            source.Controllers.Add(controller);
+            VRCExpressionMenuToggles.Apply(root.transform, new[] { source }, root.transform, items, selectors,
+                null, new ConversionReporter());
+
+            var panel = selectors.Find(s => s.GetComponent<FrooxEngine.UIX.CanvasWrapper>() != null);
+            Assert.IsNotNull(panel, "Radial control must generate a continuous UIX panel");
+            Assert.IsFalse(panel.activeSelf);
+            Assert.IsTrue(items.Exists(item => item.name.Contains("Drag") &&
+                Equals(item.GetComponent<FrooxEngine.ButtonToggleWrapper>()?.Data.TargetValue,
+                    new SlotActiveField(panel.transform))));
+        }
+        finally
+        {
+            VRCExpressionMenuToggles.Clear(items, selectors);
+            Object.DestroyImmediate(clip);
+            Object.DestroyImmediate(tree);
+            Object.DestroyImmediate(controller);
+            Object.DestroyImmediate(menu);
+            Object.DestroyImmediate(root);
+        }
     }
 
     [Test]

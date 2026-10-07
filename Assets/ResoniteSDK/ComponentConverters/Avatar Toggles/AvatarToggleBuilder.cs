@@ -369,6 +369,55 @@ public static class AvatarToggleBuilder
         return value.Value_Element.Member;
     }
 
+    /// <summary>Builds a draggable UIX slider that writes directly into a puppet's continuous float state.</summary>
+    public static void BuildContinuousSlider(GameObject panel, FrooxEngine.IField<float> puppetValue,
+        float initial, float min, float max)
+    {
+        var canvas = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.CanvasWrapper>(panel).Data;
+        canvas.Size = new Vector2(0.5f, 0.12f);
+        canvas.AcceptRemoteTouch = true;
+        canvas.AcceptPhysicalTouch = true;
+        ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.RectTransformWrapper>(panel);
+
+        var track = GeneratedObjectHelper.EnsureChild(panel.transform, "[Resonite] Track");
+        var rect = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.RectTransformWrapper>(track).Data;
+        rect.AnchorMin = new Vector2(0.08f, 0.3f);
+        rect.AnchorMax = new Vector2(0.92f, 0.7f);
+        rect.OffsetMin = Vector2.zero;
+        rect.OffsetMax = Vector2.zero;
+        ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.ImageWrapper>(track).Data.InteractionTarget = true;
+
+        var slider = ConverterComponentHelper.GetOrAdd<ContinuousPuppetSliderWrapper>(track).Data;
+        slider.Min = min;
+        slider.Max = max;
+        slider.Value = initial;
+        slider.Clamp = true;
+        slider.Integers = false;
+        slider.Power = 1f;
+        slider.AnchorOffset = new Vector2(0, 0.5f);
+
+        var handle = GeneratedObjectHelper.EnsureChild(track.transform, "[Resonite] Handle");
+        var handleRect = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.RectTransformWrapper>(handle).Data;
+        handleRect.OffsetMin = new Vector2(-0.012f, -0.035f);
+        handleRect.OffsetMax = new Vector2(0.012f, 0.035f);
+        slider.HandleAnchorMinDrive = handleRect.AnchorMin_Element.Member;
+        slider.HandleAnchorMaxDrive = handleRect.AnchorMax_Element.Member;
+        ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.ImageWrapper>(handle).Data.InteractionTarget = false;
+
+        var copy = ConverterComponentHelper.GetOrAdd<ValueCopyFloatWrapper>(panel).Data;
+        copy.Source = slider.Value_Element.Member;
+        copy.Target = puppetValue;
+        copy.WriteBack = true;
+    }
+
+    /// <summary>Opens or closes a draggable puppet panel from a context menu item.</summary>
+    public static void BuildContinuousSliderToggle(GameObject item, GameObject panel)
+    {
+        panel.SetActive(false);
+        var button = ConverterComponentHelper.GetOrAdd<FrooxEngine.ButtonToggleWrapper>(item).Data;
+        button.TargetValue = new SlotActiveField(panel.transform);
+    }
+
     /// <summary>
     /// Builds a menu item that sets a puppet to the given value
     /// </summary>

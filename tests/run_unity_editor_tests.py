@@ -18,6 +18,7 @@ if staged.exists() or meta.exists():
     parser.error(f'Test staging path is occupied: {staged} (or its .meta)')
 
 try:
+    log.unlink(missing_ok=True)
     staged.write_bytes(source.read_bytes())
     result = subprocess.run([args.unity, '-batchmode', '-nographics', '-quit',
         '-projectPath', str(project), '-executeMethod', 'ExpressionPuppetAnalyzerTests.RunFromCommandLine',
