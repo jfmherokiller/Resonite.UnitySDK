@@ -32,6 +32,8 @@ public class ExpressionPuppetAnalyzerTests
             suite.FractionalFloatOptionsCreateDistinctSelector();
             suite.NearbyFloatOptionsCreateDistinctSelector();
             suite.MToonPannersAreRemovedWhenScrollStops();
+            suite.LilToonDisabledReflectionClearsShinyFields();
+            suite.LilToonReenabledReflectionRestoresHighlights();
             suite.LilToonReportsDroppedSecondaryNormalLayer();
             suite.LilToonReportsIgnoredSecondaryNormalStrengthMask();
             suite.LilToonReportsBothNormalOmissionsWithSecondaryMask();
@@ -422,6 +424,73 @@ public class ExpressionPuppetAnalyzerTests
             CollectionAssert.Contains(weights, 0.375f, "Source sum and global weight must blend with rest scale");
         }
         finally { Object.DestroyImmediate(root); }
+    }
+
+    [Test]
+    public void LilToonDisabledReflectionClearsShinyFields()
+    {
+        var root = new GameObject("Unlit lilToon reflections");
+        var material = new Material(Shader.Find("lilToon"));
+        try
+        {
+            material.SetFloat("_UseReflection", 0);
+            material.SetFloat("_Metallic", 0);
+            material.SetFloat("_Smoothness", 1);
+            material.SetFloat("_UseShadow", 0);
+            material.SetFloat("_UseEmission", 0);
+            var xiexe = root.AddComponent<FrooxEngine.XiexeToonMaterialWrapper>().Data;
+            xiexe.Reflectivity = 1;
+            xiexe.Metallic = 0.8f;
+            xiexe.Glossiness = 0.9f;
+            xiexe.SpecularIntensity = 80;
+            new LilToonXiexeConverter(xiexe, material, new ImmediateContext(), new LilToonAssetCache())
+                .UpdateConversion();
+            Assert.AreEqual(0, xiexe.Reflectivity, "Disabled lilToon reflection must not inherit Xiexe's reflective default");
+            Assert.AreEqual(0, xiexe.Metallic);
+            Assert.AreEqual(0, xiexe.Glossiness);
+            Assert.AreEqual(0, xiexe.SpecularIntensity);
+            Assert.IsNull(xiexe.MetallicGlossMap);
+        }
+        finally
+        {
+            Object.DestroyImmediate(material);
+            Object.DestroyImmediate(root);
+        }
+    }
+
+    [Test]
+    public void LilToonReenabledReflectionRestoresHighlights()
+    {
+        var root = new GameObject("Toggle lilToon reflections");
+        var material = new Material(Shader.Find("lilToon"));
+        try
+        {
+            material.SetFloat("_UseReflection", 0);
+            material.SetFloat("_UseShadow", 0);
+            material.SetFloat("_UseEmission", 0);
+            var xiexe = root.AddComponent<FrooxEngine.XiexeToonMaterialWrapper>().Data;
+            var converter = new LilToonXiexeConverter(xiexe, material, new ImmediateContext(), new LilToonAssetCache());
+            converter.UpdateConversion();
+            Assert.AreEqual(0, xiexe.Reflectivity);
+
+            material.SetFloat("_UseReflection", 1);
+            material.SetFloat("_ApplyReflection", 1);
+            material.SetFloat("_ApplySpecular", 1);
+            material.SetFloat("_Reflectance", 0.35f);
+            material.SetFloat("_Metallic", 0.2f);
+            material.SetFloat("_Smoothness", 0.6f);
+            converter.UpdateConversion();
+            Assert.That(xiexe.Reflectivity, Is.EqualTo(0.35f).Within(1e-5f),
+                "Enabled reflection should follow lilToon's reflectance");
+            Assert.That(xiexe.Metallic, Is.EqualTo(0.2f).Within(1e-5f));
+            Assert.That(xiexe.Glossiness, Is.EqualTo(0.6f).Within(1e-5f));
+            Assert.Greater(xiexe.SpecularIntensity, 0);
+        }
+        finally
+        {
+            Object.DestroyImmediate(material);
+            Object.DestroyImmediate(root);
+        }
     }
 
     [Test]

@@ -54,6 +54,7 @@ public class LilToonXiexeConverter
         var mainTexture = GetMainTexture();
         UpdateMainTexture(mainTexture);
         UpdateRenderSettings();
+        UpdateReflection();
         UpdateNormal();
         UpdateEmission(mainTexture.Texture, mainTexture.Scale, mainTexture.Offset);
         UpdateMatcap();
@@ -288,6 +289,20 @@ public class LilToonXiexeConverter
         return shaderName.IndexOf(subName, separatorIndex + 1) != -1;
     }
  
+    private void UpdateReflection()
+    {
+        var enabled = Material.GetFloat("_UseReflection") != 0;
+        Xiexe.MetallicGlossMap = null;
+        Xiexe.Metallic = enabled ? Material.GetFloat("_Metallic") : 0;
+        Xiexe.Glossiness = enabled && Material.GetFloat("_ApplyReflection") != 0
+            ? Material.GetFloat("_Smoothness") : 0;
+        Xiexe.Reflectivity = enabled && Material.GetFloat("_ApplyReflection") != 0
+            ? Material.GetFloat("_Reflectance") : 0;
+        Xiexe.SpecularIntensity = enabled && Material.GetFloat("_ApplySpecular") != 0
+            ? 100 * Material.GetFloat("_Smoothness") : 0;
+        Xiexe.SpecularArea = enabled ? 1 - Material.GetFloat("_SpecularBorder") : 0.5f;
+    }
+
     private void UpdateNormal()
     {
         var primaryNormal = Material.GetTexture("_BumpMap");
