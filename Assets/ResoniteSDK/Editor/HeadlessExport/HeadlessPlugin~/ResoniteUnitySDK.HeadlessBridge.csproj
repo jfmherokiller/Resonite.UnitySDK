@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Headless-only bridge plugin; built by the Resonite SDK window. Pass -p:ResoniteHeadless=<Headless folder>. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>ResoniteUnitySDK.HeadlessBridge</AssemblyName>
+    <RootNamespace>ResoniteUnitySDK.Headless</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <Target Name="RequireHeadlessPath" BeforeTargets="ResolveAssemblyReferences" Condition="'$(ResoniteHeadless)' == ''">
+    <Error Text="Set -p:ResoniteHeadless to the Resonite Headless folder." />
+  </Target>
+  <ItemGroup>
+    <Reference Include="FrooxEngine" HintPath="$(ResoniteHeadless)/FrooxEngine.dll" Private="false" />
+    <Reference Include="Elements.Core" HintPath="$(ResoniteHeadless)/Elements.Core.dll" Private="false" />
+    <Reference Include="Elements.Data" HintPath="$(ResoniteHeadless)/Elements.Data.dll" Private="false" />
+    <Reference Include="Elements.Assets" HintPath="$(ResoniteHeadless)/Elements.Assets.dll" Private="false" />
+  </ItemGroup>
+</Project>

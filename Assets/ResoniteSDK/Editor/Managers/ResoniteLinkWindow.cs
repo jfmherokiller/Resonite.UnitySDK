@@ -167,6 +167,9 @@ public class ResoniteLinkWindow : EditorWindow
         GUI.enabled = true;
 
         GUILayout.Space(32);
+        HeadlessExportPanel.OnGUI(this);
+
+        GUILayout.Space(32);
         GUILayout.Label("DEBUGGING:");
 
         LogMessageJSON = GUILayout.Toggle(LogMessageJSON, "Log Messages JSON");
@@ -322,6 +325,14 @@ public class ResoniteLinkWindow : EditorWindow
     {
         _converter = null;
         EnsureConverter();
+    }
+
+    // Headless export drives a hidden instance through its own, already connected link.
+    internal void UseLink(LinkInterface link, string uniqueSessionId, int port)
+    {
+        _linkInterface = link;
+        _uniqueSessionId = uniqueSessionId;
+        Port = port;
     }
 
     string ConnectButtonLabel => State switch
