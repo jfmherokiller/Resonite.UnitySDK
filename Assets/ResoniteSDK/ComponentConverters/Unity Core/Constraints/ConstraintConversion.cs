@@ -137,9 +137,9 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
 {
     const float FULL_WEIGHT = 0.99f;
 
-    public FrooxEngine.VirtualParentWrapper VirtualParent;
-    public FrooxEngine.LookAtWrapper LookAt;
-    public FrooxEngine.CopyGlobalScaleWrapper CopyScale;
+    public ResRef<FrooxEngine.VirtualParent> VirtualParent;
+    public ResRef<FrooxEngine.LookAt> LookAt;
+    public ResRef<FrooxEngine.CopyGlobalScale> CopyScale;
 
     // Position & Rotation constraints
     public GameObject Anchor;
@@ -292,11 +292,11 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
         SetupVirtualParent(wrapper, source, data.Target);
     }
 
-    static void SetupVirtualParent(FrooxEngine.VirtualParentWrapper wrapper, ConstraintSourceData source, Transform target)
+    static void SetupVirtualParent(ResRef<FrooxEngine.VirtualParent> wrapper, ConstraintSourceData source, Transform target)
     {
-        ResoniteMemberFilter.Set(wrapper, "OverrideParent", "LocalPosition", "LocalRotation", "LocalScale");
+        ResoniteMemberFilter.Set(wrapper.Container, "OverrideParent", "LocalPosition", "LocalRotation", "LocalScale");
 
-        var parent = wrapper.Data;
+        var parent = wrapper.Binding;
 
         parent.OverrideParent = source.Source.GetSlot();
         parent.LocalPosition = source.PositionOffset;
@@ -309,9 +309,9 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
     void SetupLookAt(ConstraintData data, ConstraintSourceData source)
     {
         var wrapper = ConverterComponentHelper.EnsureOn(ref LookAt, data.Target.gameObject);
-        ResoniteMemberFilter.Set(wrapper, "Target", "Up", "RotationOffset");
+        ResoniteMemberFilter.Set(wrapper.Container, "Target", "Up", "RotationOffset");
 
-        var lookAt = wrapper.Data;
+        var lookAt = wrapper.Binding;
 
         lookAt.Target = source.Source.GetSlot();
         lookAt.Up = data.WorldUp;
@@ -332,10 +332,10 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
     void SetupScale(ConstraintData data, ConstraintSourceData source)
     {
         var wrapper = ConverterComponentHelper.EnsureOn(ref CopyScale, data.Target.gameObject);
-        ResoniteMemberFilter.Set(wrapper, "Source", "NonUniform");
+        ResoniteMemberFilter.Set(wrapper.Container, "Source", "NonUniform");
 
-        wrapper.Data.Source = source.Source.GetSlot();
-        wrapper.Data.NonUniform = true;
+        wrapper.Binding.Source = source.Source.GetSlot();
+        wrapper.Binding.NonUniform = true;
 
         ReportScaleOffset(data);
     }
@@ -402,37 +402,37 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
             follower = GeneratedObjectHelper.Create(target.parent, name);
         }
 
-        var copyTransform = ConverterComponentHelper.GetOrAdd<FrooxEngine.CopyGlobalTransformWrapper>(follower);
-        ResoniteMemberFilter.Set(copyTransform, "Source");
-        copyTransform.Data.Source = anchor.GetSlot();
+        var copyTransform = ConverterComponentHelper.GetOrAdd<FrooxEngine.CopyGlobalTransform>(follower);
+        ResoniteMemberFilter.Set(copyTransform.Container, "Source");
+        copyTransform.Binding.Source = anchor.GetSlot();
 
         return follower;
     }
 
     void EnsureCopy(bool position, GameObject host, Transform from, Transform to)
     {
-        if (LocalCopy != null && (LocalCopy.gameObject != host || (position ? !(LocalCopy is ValueCopyFloat3Wrapper) : !(LocalCopy is ValueCopyFloatQWrapper))))
+        if (LocalCopy != null && (LocalCopy.gameObject != host || (position ? !(LocalCopy.Data is ValueCopyFloat3Wrapper) : !(LocalCopy.Data is ValueCopyFloatQWrapper))))
             ConverterComponentHelper.Remove(ref LocalCopy);
 
         if (position)
         {
-            var copy = LocalCopy as ValueCopyFloat3Wrapper;
+            var copy = LocalCopy != null ? LocalCopy.Data as ValueCopyFloat3Wrapper : null;
 
             if (copy == null)
-                LocalCopy = copy = host.AddComponent<ValueCopyFloat3Wrapper>();
+                copy = host.AddResoniteComponent<ValueCopyFloat3Wrapper>(out LocalCopy);
 
-            copy.Data.Source = new SlotPositionField(from);
-            copy.Data.Target = new SlotPositionField(to);
+            copy.Source = new SlotPositionField(from);
+            copy.Target = new SlotPositionField(to);
         }
         else
         {
-            var copy = LocalCopy as ValueCopyFloatQWrapper;
+            var copy = LocalCopy != null ? LocalCopy.Data as ValueCopyFloatQWrapper : null;
 
             if (copy == null)
-                LocalCopy = copy = host.AddComponent<ValueCopyFloatQWrapper>();
+                copy = host.AddResoniteComponent<ValueCopyFloatQWrapper>(out LocalCopy);
 
-            copy.Data.Source = new SlotRotationField(from);
-            copy.Data.Target = new SlotRotationField(to);
+            copy.Source = new SlotRotationField(from);
+            copy.Target = new SlotRotationField(to);
         }
     }
 
@@ -483,7 +483,7 @@ public abstract class ConstraintConverterBase<T> : ResoniteComponentConverter<T>
                         follower = GeneratedObjectHelper.Create(target.parent, $"[Resonite] Constraint Follower {i}");
                     }
 
-                    SetupVirtualParent(ConverterComponentHelper.GetOrAdd<FrooxEngine.VirtualParentWrapper>(follower), sources[i], target);
+                    SetupVirtualParent(ConverterComponentHelper.GetOrAdd<FrooxEngine.VirtualParent>(follower), sources[i], target);
                 }
                 else
                 {

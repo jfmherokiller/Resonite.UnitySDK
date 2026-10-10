@@ -13,7 +13,7 @@ using UnityEngine;
 public class DynamicBoneColliderBuilder
 {
     public GameObject Container;
-    public List<FrooxEngine.DynamicBoneSphereColliderWrapper> Spheres = new List<FrooxEngine.DynamicBoneSphereColliderWrapper>();
+    public List<ResRef<FrooxEngine.DynamicBoneSphereCollider>> Spheres = new List<ResRef<FrooxEngine.DynamicBoneSphereCollider>>();
 
     public bool Exists => Container != null;
 
@@ -53,20 +53,20 @@ public class DynamicBoneColliderBuilder
         while (Spheres.Count < offsets.Count)
         {
             var sphere = GeneratedObjectHelper.Create(Container.transform, $"Sphere {Spheres.Count}");
-            Spheres.Add(sphere.AddComponent<FrooxEngine.DynamicBoneSphereColliderWrapper>());
+            Spheres.Add(sphere.AddResoniteComponent<FrooxEngine.DynamicBoneSphereCollider>());
         }
 
         while (Spheres.Count > offsets.Count)
         {
-            UnityEngine.Object.DestroyImmediate(Spheres[Spheres.Count - 1].gameObject);
+            UnityEngine.Object.DestroyImmediate(Spheres[Spheres.Count - 1].Container.gameObject);
             Spheres.RemoveAt(Spheres.Count - 1);
         }
 
         for (int i = 0; i < offsets.Count; i++)
         {
-            GeneratedObjectHelper.SetLocalPose(Spheres[i].transform, new Vector3(0, offsets[i], 0), Quaternion.identity);
+            GeneratedObjectHelper.SetLocalPose(Spheres[i].Container.transform, new Vector3(0, offsets[i], 0), Quaternion.identity);
 
-            var data = Spheres[i].Data;
+            var data = Spheres[i].Binding;
 
             data.Enabled = enabled;
 
@@ -79,7 +79,7 @@ public class DynamicBoneColliderBuilder
     {
         foreach (var sphere in Spheres)
             if (sphere != null)
-                yield return sphere.Data;
+                yield return sphere.Binding;
     }
 
     public void Clear()

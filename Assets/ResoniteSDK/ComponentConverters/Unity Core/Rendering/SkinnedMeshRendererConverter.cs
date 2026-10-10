@@ -2,7 +2,8 @@ using UnityEngine;
 
 public static class SkinnedMeshRendererHelper
 {
-    public static void SetFrom(this FrooxEngine.SkinnedMeshRenderer resonite, UnityEngine.SkinnedMeshRenderer unity, IConversionContext context)
+    public static void SetFrom(this FrooxEngine.SkinnedMeshRenderer resonite, UnityEngine.SkinnedMeshRenderer unity, IConversionContext context,
+        AssetMessagePostProcessor meshPostProcessor = null)
     {
         // This will assign all the shared stuff for the MeshRenderer
         // Shadow casting, materials and so on, EXCEPT the mesh and skinned data
@@ -11,7 +12,7 @@ public static class SkinnedMeshRendererHelper
         var mesh = unity.sharedMesh;
 
         // SkinnedMeshRenderer doesn't use mesh filter, we just get it directly
-        resonite.Mesh = context.GetMesh(mesh);
+        resonite.Mesh = context.GetMesh(mesh, meshPostProcessor);
 
         // If the mesh isn't assigned, we can't actually calculate these properly
         if (mesh == null)
@@ -52,8 +53,10 @@ public static class SkinnedMeshRendererHelper
 
 public class SkinnedMeshRendererConverter : ResoniteSingleComponentConverter<SkinnedMeshRenderer, FrooxEngine.SkinnedMeshRenderer>
 {
+    AvatarBlendShapeNameGuard _blendShapeNames;
+
     protected override void UpdateConversion(SkinnedMeshRenderer target, IConversionContext context)
     {
-        Binding.SetFrom(target, context);
+        Binding.SetFrom(target, context, AvatarBlendShapeNameGuard.ForRenderer(target, ref _blendShapeNames));
     }
 }

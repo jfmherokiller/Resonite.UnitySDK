@@ -1,8 +1,7 @@
-using UnityEngine;
+using System;
 
-// Unity can't add generic components, so this is a concrete variant of the generic Resonite component
-[AddComponentMenu("FrooxEngine/Transform/Drivers/ValueGradientDriver<float>")]
-public class ValueGradientDriverFloatWrapper : FrooxEngine.ValueGradientDriverWrapper<float>
+[Serializable]
+[ResoniteTypeName("[FrooxEngine]FrooxEngine.ValueGradientDriver<float>")]
+public class ValueGradientDriverFloatWrapper : FrooxEngine.ValueGradientDriver<float>
 {
-    public override string TypeName => "[FrooxEngine]FrooxEngine.ValueGradientDriver<float>";
 }

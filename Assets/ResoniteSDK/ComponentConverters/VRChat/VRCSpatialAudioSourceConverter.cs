@@ -29,7 +29,7 @@ public class VRCSpatialAudioSourceConverter : ResoniteComponentConverter<Compone
         if (converter == null || converter.Output == null)
             return false;
 
-        var output = converter.Output.Data;
+        var output = converter.Output.Binding;
 
         if (!ReflectionAccessor.Get(target, "EnableSpatialization", true))
             output.SpatialBlend = 0;

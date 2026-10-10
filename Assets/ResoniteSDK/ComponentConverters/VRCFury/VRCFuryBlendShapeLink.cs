@@ -34,20 +34,22 @@ public static class VRCFuryBlendShapeLink
         if (container == null)
             container = GeneratedObjectHelper.EnsureChild(target.transform, OBJECT_NAME);
 
-        var copies = container.GetComponents<ValueCopyFloatWrapper>().ToList();
+        var copies = container.GetComponents<ResoniteComponent>()
+            .Where(c => c.Data is ValueCopyFloatWrapper)
+            .Select(c => new ResRef<ValueCopyFloatWrapper>(c)).ToList();
 
         while (copies.Count < links.Count)
-            copies.Add(container.AddComponent<ValueCopyFloatWrapper>());
+            copies.Add(container.AddResoniteComponent<ValueCopyFloatWrapper>());
 
         while (copies.Count > links.Count)
         {
-            UnityEngine.Object.DestroyImmediate(copies[copies.Count - 1]);
+            UnityEngine.Object.DestroyImmediate(copies[copies.Count - 1].Container);
             copies.RemoveAt(copies.Count - 1);
         }
 
         for (int i = 0; i < links.Count; i++)
         {
-            var copy = copies[i].Data;
+            var copy = copies[i].Binding;
             var (baseRenderer, link) = links[i];
 
             copy.WriteBack = false;

@@ -1,8 +1,7 @@
-using UnityEngine;
+using System;
 
-// Unity can't add generic components, so this is a concrete variant of the generic Resonite component
-[AddComponentMenu("FrooxEngine/Assets/Utility/AssetMultiplexer<Material>")]
-public class AssetMultiplexerMaterialWrapper : FrooxEngine.AssetMultiplexerWrapper<FrooxEngine.Material>
+[Serializable]
+[ResoniteTypeName("[FrooxEngine]FrooxEngine.AssetMultiplexer<[FrooxEngine]FrooxEngine.Material>")]
+public class AssetMultiplexerMaterialWrapper : FrooxEngine.AssetMultiplexer<FrooxEngine.Material>
 {
-    public override string TypeName => "[FrooxEngine]FrooxEngine.AssetMultiplexer<[FrooxEngine]FrooxEngine.Material>";
 }

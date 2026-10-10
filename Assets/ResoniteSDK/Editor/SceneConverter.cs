@@ -753,24 +753,11 @@ public class SceneConverter : IConversionContext
                     // Once it gets referenced by something, e.g. a component that will ensure conversion happens
                     switch (changedAsset)
                     {
-                        case UnityEngine.Mesh mesh:
-                            if (_assetConverter.HasMesh(mesh))
-                                _assetConverter.GetMesh(mesh);
-                            break;
-
-                        case UnityEngine.Texture2D texture2D:
-                            if (_assetConverter.HasTexture2D(texture2D))
-                                _assetConverter.GetTexture2D(texture2D);
-                            break;
-
-                        case UnityEngine.Cubemap cubemap:
-                            if (_assetConverter.HasCubemap(cubemap))
-                                _assetConverter.GetCubemap(cubemap);
-                            break;
-
-                        case UnityEngine.AudioClip audioClip:
-                            if (_assetConverter.HasAudioClip(audioClip))
-                                _assetConverter.GetAudioClip(audioClip);
+                        case UnityEngine.Mesh:
+                        case UnityEngine.Texture2D:
+                        case UnityEngine.Cubemap:
+                        case UnityEngine.AudioClip:
+                            _assetConverter.RefreshAssetVariants(changedAsset);
                             break;
 
                         case UnityEngine.Material material:

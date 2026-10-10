@@ -301,9 +301,7 @@ public static class VRCExpressionMenuToggles
 
         var stateObject = nextSelector($"[Resonite] Axis Puppet {string.Join(",", names)}");
         var panel = nextSelector($"[Resonite] Continuous Axis {string.Join(",", names)}");
-        panel.transform.localPosition = ReflectionAccessor.Get(owner, "ViewPosition", new Vector3(0, 1.5f, 0))
-            + new Vector3(0, -0.28f, 0.55f);
-        panel.transform.localRotation = Quaternion.Euler(0, 180, 0);
+        PlacePanel(panel, owner, 0.28f);
         var (x, y) = AvatarToggleBuilder.BuildContinuousAxes(stateObject, panel, initial, grid, context);
         foreach (var puppet in puppets)
         {
@@ -437,6 +435,16 @@ public static class VRCExpressionMenuToggles
             AvatarToggleBuilder.BuildSelectorOption(nextItem(options[0].Folders, $"{parameter}: Default", "Option"), indexField, defaultIndex);
     }
 
+    // Draggable panels face the wearer within reach; placement tuned in-world on a converted avatar.
+    const float PANEL_FORWARD = 0.7f;
+
+    static void PlacePanel(GameObject panel, Component owner, float drop)
+    {
+        panel.transform.localPosition = ReflectionAccessor.Get(owner, "ViewPosition", new Vector3(0, 1.5f, 0))
+            + new Vector3(0, -drop, PANEL_FORWARD);
+        panel.transform.localRotation = Quaternion.identity;
+    }
+
     static void BuildPuppet(Component owner, ExpressionMenuSource source, List<RuntimeAnimatorController> controllers,
         string parameter, float defaultValue, List<MenuControl> puppets, HashSet<string> claimed, HashSet<string> unsupported,
         IConversionContext context, ConversionReporter report, Func<string[], string, string, GameObject> nextItem,
@@ -464,9 +472,7 @@ public static class VRCExpressionMenuToggles
             samples, context);
 
         var panel = nextSelector($"[Resonite] Continuous Puppet {parameter}");
-        panel.transform.localPosition = ReflectionAccessor.Get(owner, "ViewPosition", new Vector3(0, 1.5f, 0))
-            + new Vector3(0, -0.2f, 0.55f);
-        panel.transform.localRotation = Quaternion.Euler(0, 180, 0);
+        PlacePanel(panel, owner, 0.2f);
         AvatarToggleBuilder.BuildContinuousSlider(panel, value, Mathf.Clamp(defaultValue, min, 1), min, 1);
 
         foreach (var puppet in puppets)

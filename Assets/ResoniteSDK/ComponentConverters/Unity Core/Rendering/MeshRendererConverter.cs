@@ -2,6 +2,27 @@ using UnityEngine;
 
 public static class MeshRendererHelper
 {
+    public static FrooxEngine.MeshRenderer GetConvertedBinding(UnityEngine.Renderer source)
+    {
+        if (source == null)
+            return null;
+
+        // Conversion callbacks can run before an existing converter recovers its owned container.
+        foreach (var converter in source.GetComponents<ResoniteComponentConverter>())
+        {
+            if (converter.Target != source)
+                continue;
+            if (converter is SkinnedMeshRendererConverter skinned)
+                return skinned.Binding;
+            if (converter is MeshRendererConverter mesh)
+                return mesh.Binding;
+        }
+
+        return source is SkinnedMeshRenderer
+            ? source.gameObject.GetResoniteComponent<FrooxEngine.SkinnedMeshRenderer>().Binding
+            : source.gameObject.GetResoniteComponent<FrooxEngine.MeshRenderer>().Binding;
+    }
+
     public static void SetFrom(this FrooxEngine.MeshRenderer resonite, UnityEngine.MeshRenderer unity, IConversionContext context)
     {
         // We need to explicitly cast here to use the shared method for setting from the Renderer itself

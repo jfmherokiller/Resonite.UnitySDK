@@ -1,8 +1,7 @@
-using UnityEngine;
+using System;
 
-// Unity can't add generic components, so this is a concrete variant of the generic Resonite component
-[AddComponentMenu("FrooxEngine/ProtoFlux/GlobalReference<IValue<int>>")]
-public class ProtoFluxGlobalValueIntWrapper : FrooxEngine.ProtoFlux.GlobalReferenceWrapper<FrooxEngine.IValue<int>>
+[Serializable]
+[ResoniteTypeName("[FrooxEngine]FrooxEngine.ProtoFlux.GlobalReference<[FrooxEngine]FrooxEngine.IValue<int>>")]
+public class ProtoFluxGlobalValueIntWrapper : FrooxEngine.ProtoFlux.GlobalReference<FrooxEngine.IValue<int>>
 {
-    public override string TypeName => "[FrooxEngine]FrooxEngine.ProtoFlux.GlobalReference<[FrooxEngine]FrooxEngine.IValue<int>>";
 }

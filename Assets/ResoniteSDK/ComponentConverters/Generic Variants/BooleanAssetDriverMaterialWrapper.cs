@@ -1,8 +1,7 @@
-using UnityEngine;
+using System;
 
-// Unity can't add generic components, so this is a concrete variant of the generic Resonite component
-[AddComponentMenu("FrooxEngine/Assets/Utility/BooleanAssetDriver<Material>")]
-public class BooleanAssetDriverMaterialWrapper : FrooxEngine.BooleanAssetDriverWrapper<FrooxEngine.Material>
+[Serializable]
+[ResoniteTypeName("[FrooxEngine]FrooxEngine.BooleanAssetDriver<[FrooxEngine]FrooxEngine.Material>")]
+public class BooleanAssetDriverMaterialWrapper : FrooxEngine.BooleanAssetDriver<FrooxEngine.Material>
 {
-    public override string TypeName => "[FrooxEngine]FrooxEngine.BooleanAssetDriver<[FrooxEngine]FrooxEngine.Material>";
 }

@@ -1,8 +1,7 @@
-using UnityEngine;
+using System;
 
-// Unity can't add generic components, so this is a concrete variant of the generic Resonite component
-[AddComponentMenu("FrooxEngine/Common UI/Button Interactions/ButtonValueSet<int>")]
-public class ButtonValueSetIntWrapper : FrooxEngine.ButtonValueSetWrapper<int>
+[Serializable]
+[ResoniteTypeName("[FrooxEngine]FrooxEngine.ButtonValueSet<int>")]
+public class ButtonValueSetIntWrapper : FrooxEngine.ButtonValueSet<int>
 {
-    public override string TypeName => "[FrooxEngine]FrooxEngine.ButtonValueSet<int>";
 }

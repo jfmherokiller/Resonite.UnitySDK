@@ -44,15 +44,18 @@ public class ProtoFluxGraph
                 Object.DestroyImmediate(component);
     }
 
-    T Next<T>() where T : ResoniteComponent
+    ResRef<T> Next<T>() where T : ResoniteObject, FrooxEngine.IWorldElement, new()
     {
         _cursors.TryGetValue(typeof(T), out var index);
         _cursors[typeof(T)] = index + 1;
 
-        var existing = _host.GetComponents<T>();
-        var component = index < existing.Length ? existing[index] : _host.AddComponent<T>();
+        var existing = _host.GetComponents<ResoniteComponent>()
+            .Where(container => container.Data is T).ToArray();
+        var component = index < existing.Length
+            ? new ResRef<T>(existing[index])
+            : _host.AddResoniteComponent<T>();
 
-        _used.Add(component);
+        _used.Add(component.Container);
 
         return component;
     }
@@ -61,42 +64,42 @@ public class ProtoFluxGraph
 
     public INodeValueOutput<float> Constant(float value)
     {
-        var node = Next<ProtoFluxValueInputFloatWrapper>().Data;
+        var node = Next<ProtoFluxValueInputFloatWrapper>().Binding;
         node.Value = value;
         return node;
     }
 
     public INodeValueOutput<Vector3> Constant(Vector3 value)
     {
-        var node = Next<ProtoFluxValueInputFloat3Wrapper>().Data;
+        var node = Next<ProtoFluxValueInputFloat3Wrapper>().Binding;
         node.Value = value;
         return node;
     }
 
     public INodeValueOutput<Quaternion> Constant(Quaternion value)
     {
-        var node = Next<ProtoFluxValueInputFloatQWrapper>().Data;
+        var node = Next<ProtoFluxValueInputFloatQWrapper>().Binding;
         node.Value = value;
         return node;
     }
 
     public INodeValueOutput<bool> Constant(bool value)
     {
-        var node = Next<ProtoFluxValueInputBoolWrapper>().Data;
+        var node = Next<ProtoFluxValueInputBoolWrapper>().Binding;
         node.Value = value;
         return node;
     }
 
     public INodeValueOutput<int> Constant(int value)
     {
-        var node = Next<ProtoFluxValueInputIntWrapper>().Data;
+        var node = Next<ProtoFluxValueInputIntWrapper>().Binding;
         node.Value = value;
         return node;
     }
 
     public INodeObjectOutput<FrooxEngine.Slot> Slot(Transform transform)
     {
-        var node = Next<ProtoFluxSlotInputWrapper>().Data;
+        var node = Next<ProtoFluxSlotInputWrapper>().Binding;
         node.Target = transform.GetSlot();
         return node;
     }
@@ -107,28 +110,28 @@ public class ProtoFluxGraph
 
     public (INodeValueOutput<Vector3> position, INodeValueOutput<Quaternion> rotation) LocalTransform(Transform transform)
     {
-        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalTransformWrapper>().Data;
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalTransform>().Binding;
         node.Instance = Slot(transform);
         return (node.LocalPosition, node.LocalRotation);
     }
 
     public INodeValueOutput<Vector3> LocalScale(Transform transform)
     {
-        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalTransformWrapper>().Data;
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalTransform>().Binding;
         node.Instance = Slot(transform);
         return node.LocalScale;
     }
 
     public INodeValueOutput<Vector3> GlobalScale(Transform transform)
     {
-        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalTransformWrapper>().Data;
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalTransform>().Binding;
         node.Instance = Slot(transform);
         return node.GlobalScale;
     }
 
     public INodeValueOutput<Vector3> LocalScaleToGlobal(Transform transform, INodeValueOutput<Vector3> scale)
     {
-        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalScaleToGlobalWrapper>().Data;
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalScaleToGlobal>().Binding;
         node.Instance = Slot(transform);
         node.LocalScale = scale;
         return node;
@@ -136,7 +139,7 @@ public class ProtoFluxGraph
 
     public INodeValueOutput<Vector3> GlobalScaleToLocal(Transform transform, INodeValueOutput<Vector3> scale)
     {
-        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalScaleToLocalWrapper>().Data;
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalScaleToLocal>().Binding;
         node.Instance = Slot(transform);
         node.GlobalScale = scale;
         return node;
@@ -148,7 +151,7 @@ public class ProtoFluxGraph
 
     public INodeValueOutput<Quaternion> Slerp(INodeValueOutput<Quaternion> from, INodeValueOutput<Quaternion> to, INodeValueOutput<float> lerp)
     {
-        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.Math.Quaternions.Slerp_floatQWrapper>().Data;
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.Math.Quaternions.Slerp_floatQ>().Binding;
         node.From = from;
         node.To = to;
         node.Lerp = lerp;
@@ -157,7 +160,7 @@ public class ProtoFluxGraph
 
     public INodeValueOutput<Vector3> Lerp(INodeValueOutput<Vector3> from, INodeValueOutput<Vector3> to, INodeValueOutput<float> lerp)
     {
-        var node = Next<ProtoFluxValueLerpFloat3Wrapper>().Data;
+        var node = Next<ProtoFluxValueLerpFloat3Wrapper>().Binding;
         node.From = from;
         node.To = to;
         node.Lerp = lerp;
@@ -169,9 +172,9 @@ public class ProtoFluxGraph
     /// </summary>
     public INodeValueOutput<Vector3> SelectAxes(INodeValueOutput<Vector3> a, INodeValueOutput<Vector3> b, bool x, bool y, bool z)
     {
-        var unpackA = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.Operators.Unpack_Float3Wrapper>().Data;
-        var unpackB = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.Operators.Unpack_Float3Wrapper>().Data;
-        var pack = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.Operators.Pack_Float3Wrapper>().Data;
+        var unpackA = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.Operators.Unpack_Float3>().Binding;
+        var unpackB = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.Operators.Unpack_Float3>().Binding;
+        var pack = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.Operators.Pack_Float3>().Binding;
 
         unpackA.V = a;
         unpackB.V = b;
@@ -238,13 +241,13 @@ public class ProtoFluxGraph
     // The field is referenced through a global + ValueSource, like a Source node dropped onto a Write in game
     ISyncNodeOperation Write<T, TGlobal, TSource, TWrite>(FrooxEngine.IField<T> field, INodeValueOutput<T> value)
         where T : struct
-        where TGlobal : FrooxEngine.ProtoFlux.GlobalReferenceWrapper<FrooxEngine.IValue<T>>
-        where TSource : FrooxEngine.FrooxEngine.ProtoFlux.CoreNodes.ValueSourceWrapper<T>
-        where TWrite : FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.ValueWriteWrapper<FrooxEngineContext, T>
+        where TGlobal : FrooxEngine.ProtoFlux.GlobalReference<FrooxEngine.IValue<T>>, new()
+        where TSource : FrooxEngine.FrooxEngine.ProtoFlux.CoreNodes.ValueSource<T>, new()
+        where TWrite : FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.ValueWrite<FrooxEngineContext, T>, new()
     {
-        var global = Next<TGlobal>().Data;
-        var source = Next<TSource>().Data;
-        var write = Next<TWrite>().Data;
+        var global = Next<TGlobal>().Binding;
+        var source = Next<TSource>().Binding;
+        var write = Next<TWrite>().Binding;
 
         global.Reference = field;
         source.Source = global;
@@ -259,8 +262,8 @@ public class ProtoFluxGraph
     /// </summary>
     public void ButtonEvents(FrooxEngine.IButton button, ISyncNodeOperation pressed, ISyncNodeOperation released)
     {
-        var global = Next<ProtoFluxGlobalButtonWrapper>().Data;
-        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Interaction.ButtonEventsWrapper>().Data;
+        var global = Next<ProtoFluxGlobalButtonWrapper>().Binding;
+        var node = Next<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Interaction.ButtonEvents>().Binding;
 
         global.Reference = button;
         node.Button = global;
@@ -274,8 +277,8 @@ public class ProtoFluxGraph
 
     public void Drive(INodeValueOutput<Vector3> value, FrooxEngine.IField<Vector3> field)
     {
-        var drive = Next<ProtoFluxFieldDriveFloat3Wrapper>().Data;
-        var proxy = Next<ProtoFluxFieldDriveProxyFloat3Wrapper>().Data;
+        var drive = Next<ProtoFluxFieldDriveFloat3Wrapper>().Binding;
+        var proxy = Next<ProtoFluxFieldDriveProxyFloat3Wrapper>().Binding;
 
         drive.Value = value;
         proxy.Node = drive;
@@ -284,8 +287,8 @@ public class ProtoFluxGraph
 
     public void Drive(INodeValueOutput<Quaternion> value, FrooxEngine.IField<Quaternion> field)
     {
-        var drive = Next<ProtoFluxFieldDriveFloatQWrapper>().Data;
-        var proxy = Next<ProtoFluxFieldDriveProxyFloatQWrapper>().Data;
+        var drive = Next<ProtoFluxFieldDriveFloatQWrapper>().Binding;
+        var proxy = Next<ProtoFluxFieldDriveProxyFloatQWrapper>().Binding;
 
         drive.Value = value;
         proxy.Node = drive;

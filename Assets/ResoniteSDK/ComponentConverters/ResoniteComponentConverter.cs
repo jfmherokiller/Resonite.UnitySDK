@@ -63,7 +63,17 @@ public abstract class ResoniteSingleComponentConverter<TUnity, TResonite> : Reso
 {
     public ResoniteComponent Container;
 
-    public TResonite Binding => Container?.Data as TResonite;
+    public TResonite Binding
+    {
+        get
+        {
+            // Recreate generated containers lost during an SDK upgrade or manual cleanup.
+            if (Container == null)
+                gameObject.AddResoniteComponent<TResonite>(out Container);
+
+            return Container.Data as TResonite;
+        }
+    }
 
     protected override void Initialize(TUnity target)
     {

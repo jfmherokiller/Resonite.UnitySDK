@@ -10,14 +10,14 @@ public static class ConverterComponentHelper
     /// Makes sure the given wrapper exists on the target GameObject. If it exists on a different GameObject
     /// (e.g. because the target has changed), it's moved over. Passing null target removes the wrapper.
     /// </summary>
-    public static TWrapper EnsureOn<TWrapper>(ref TWrapper wrapper, GameObject target)
-        where TWrapper : Component
+    public static ResRef<T> EnsureOn<T>(ref ResRef<T> wrapper, GameObject target)
+        where T : ResoniteObject, FrooxEngine.IWorldElement, new()
     {
-        if (wrapper != null && wrapper.gameObject != target)
+        if (wrapper != null && wrapper.Container.gameObject != target)
             Remove(ref wrapper);
 
         if (wrapper == null && target != null)
-            wrapper = target.AddComponent<TWrapper>();
+            wrapper = target.AddResoniteComponent<T>();
 
         return wrapper;
     }
@@ -25,14 +25,24 @@ public static class ConverterComponentHelper
     /// <summary>
     /// Returns the existing component of given type on the GameObject, or adds a new one
     /// </summary>
-    public static T GetOrAdd<T>(GameObject obj) where T : Component
+    public static ResRef<T> GetOrAdd<T>(GameObject obj)
+        where T : ResoniteObject, FrooxEngine.IWorldElement, new()
     {
-        var component = obj.GetComponent<T>();
+        var component = obj.GetResoniteComponent<T>();
 
         if (component == null)
-            component = obj.AddComponent<T>();
+            component = obj.AddResoniteComponent<T>();
 
         return component;
+    }
+
+    public static void Remove<T>(ref ResRef<T> component)
+        where T : ResoniteObject, FrooxEngine.IWorldElement, new()
+    {
+        if (component != null)
+            Object.DestroyImmediate(component.Container);
+
+        component = default;
     }
 
     public static void Remove<T>(ref T component)

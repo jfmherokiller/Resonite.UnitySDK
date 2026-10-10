@@ -6,7 +6,25 @@ using UnityEngine;
 
 public abstract class AssetConverter : MonoBehaviour
 {
-    public AssetMessagePostProcessor PostProcessor;
+    [SerializeReference] AssetMessagePostProcessor _serializedPostProcessor;
+    [SerializeField] bool _requiresPostProcessor;
+    [SerializeField] bool _hasPostProcessorIdentity;
+    [NonSerialized] AssetMessagePostProcessor _runtimePostProcessor;
+
+    public AssetMessagePostProcessor PostProcessor
+    {
+        get => _runtimePostProcessor ?? _serializedPostProcessor;
+        set
+        {
+            _runtimePostProcessor = value;
+            _serializedPostProcessor = value != null && value.GetType().IsSerializable ? value : null;
+            _requiresPostProcessor = value != null;
+            _hasPostProcessorIdentity = true;
+        }
+    }
+
+    public bool HasLostPostProcessor => _requiresPostProcessor && PostProcessor == null;
+    public bool HasValidPostProcessorIdentity => _hasPostProcessorIdentity && !HasLostPostProcessor;
 
     public ulong LastTimestamp;
 
@@ -67,7 +85,19 @@ public abstract class AssetConverter<TProvider, TUnity, TResonite> : AssetConver
     where TUnity : UnityEngine.Object
 {
     public TUnity Source;
-    public ResRef<TProvider> Provider;
+    [SerializeField] ResoniteComponent _providerContainer;
+
+    public ResRef<TProvider> Provider
+    {
+        get
+        {
+            // Recover older generated providers whose ResRef container was not serialized.
+            if (_providerContainer == null)
+                _providerContainer = gameObject.GetResoniteComponent<TProvider>().Container;
+            return _providerContainer == null ? default : new ResRef<TProvider>(_providerContainer);
+        }
+        set => _providerContainer = value.Container;
+    }
 
     public void Initialize(TUnity source, AssetMessagePostProcessor postProcessor)
     {

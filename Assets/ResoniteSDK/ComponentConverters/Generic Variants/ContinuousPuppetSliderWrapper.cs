@@ -1,7 +1,7 @@
-using UnityEngine;
+using System;
 
-[AddComponentMenu("FrooxEngine/UIX/Interaction/Slider<float>")]
-public class ContinuousPuppetSliderWrapper : FrooxEngine.UIX.SliderWrapper<float>
+[Serializable]
+[ResoniteTypeName("[FrooxEngine]FrooxEngine.UIX.Slider<float>")]
+public class ContinuousPuppetSliderWrapper : FrooxEngine.UIX.Slider<float>
 {
-    public override string TypeName => "[FrooxEngine]FrooxEngine.UIX.Slider<float>";
 }

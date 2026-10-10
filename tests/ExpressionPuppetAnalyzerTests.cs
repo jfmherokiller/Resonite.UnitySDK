@@ -4,7 +4,9 @@ using System.Linq;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.Animations;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public class ExpressionPuppetAnalyzerTests
 {
@@ -51,6 +53,56 @@ public class ExpressionPuppetAnalyzerTests
         }
     }
 
+    static T[] BindingsInChildren<T>(GameObject root) where T : class =>
+        root.GetComponentsInChildren<ResoniteComponent>(true).Select(c => c.Data).OfType<T>().ToArray();
+
+    sealed class PreviewSceneScope : System.IDisposable
+    {
+        const System.Reflection.BindingFlags Flags =
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic;
+        static readonly System.Reflection.MethodInfo GetTarget = typeof(EditorSceneManager)
+            .GetMethod("GetTargetSceneForNewGameObjects", Flags);
+        static readonly System.Reflection.MethodInfo SetTarget = typeof(EditorSceneManager)
+            .GetMethod("SetTargetSceneForNewGameObjects", Flags, null, new[] { typeof(Scene) }, null);
+        static readonly System.Reflection.MethodInfo ClearTarget = typeof(EditorSceneManager)
+            .GetMethod("ClearTargetSceneForNewGameObjects", Flags);
+        readonly Scene previousTarget;
+        readonly Scene preview;
+
+        public PreviewSceneScope()
+        {
+            if (GetTarget == null || SetTarget == null || ClearTarget == null)
+                throw new System.NotSupportedException("The editor must support isolated GameObject creation for these fixtures.");
+            previousTarget = (Scene)GetTarget.Invoke(null, null);
+            preview = EditorSceneManager.NewPreviewScene();
+            try
+            {
+                // Route converter-created objects here too, without changing or dirtying the active scene.
+                SetTarget.Invoke(null, new object[] { preview });
+            }
+            catch
+            {
+                EditorSceneManager.ClosePreviewScene(preview);
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                if (previousTarget.IsValid())
+                    SetTarget.Invoke(null, new object[] { previousTarget });
+                else
+                    ClearTarget.Invoke(null, null);
+            }
+            finally
+            {
+                EditorSceneManager.ClosePreviewScene(preview);
+            }
+        }
+    }
+
     public enum FakeControlType { TwoAxisPuppet, FourAxisPuppet, RadialPuppet, Toggle, Button }
     public enum FakeValueType { Float }
     public class FakeParameter { public string name; public FakeValueType valueType; public float defaultValue; }
@@ -68,6 +120,7 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void AxisControlIsCollectedAsOneSharedControl()
     {
+        using var scene = new PreviewSceneScope();
         var menu = ScriptableObject.CreateInstance<FakeMenu>();
         var owner = new GameObject("Test Owner");
         try
@@ -97,22 +150,23 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void ButtonGraphConnectsPressAndRelease()
     {
+        using var scene = new PreviewSceneScope();
         var item = new GameObject("Button Test");
         try
         {
-            var source = item.AddComponent<FrooxEngine.ContextMenuItemSourceWrapper>().Data;
-            var value = item.AddComponent<ValueMultiDriverBoolWrapper>().Data.Value_Element.Member;
+            var source = item.AddResoniteComponent<FrooxEngine.ContextMenuItemSource>().Binding;
+            var value = item.AddResoniteComponent<ValueMultiDriverBoolWrapper>().Binding.Value_Element.Member;
             AvatarToggleBuilder.BuildButtonLink(item, value);
-            var events = item.GetComponentInChildren<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Interaction.ButtonEventsWrapper>();
+            var events = BindingsInChildren<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Interaction.ButtonEvents>(item).FirstOrDefault();
             Assert.IsNotNull(events);
-            var global = item.GetComponentInChildren<ProtoFluxGlobalButtonWrapper>();
-            Assert.AreSame(source, global.Data.Reference);
-            Assert.AreSame(global.Data, events.Data.Button);
-            Assert.AreNotSame(events.Data.Pressed, events.Data.Released);
-            var writes = item.GetComponentsInChildren<ProtoFluxValueWriteBoolWrapper>();
+            var global = BindingsInChildren<ProtoFluxGlobalButtonWrapper>(item).FirstOrDefault();
+            Assert.AreSame(source, global.Reference);
+            Assert.AreSame(global, events.Button);
+            Assert.AreNotSame(events.Pressed, events.Released);
+            var writes = BindingsInChildren<ProtoFluxValueWriteBoolWrapper>(item);
             Assert.AreEqual(2, writes.Length);
-            Assert.IsTrue(System.Array.Exists(writes, w => ReferenceEquals(w.Data, events.Data.Pressed)));
-            Assert.IsTrue(System.Array.Exists(writes, w => ReferenceEquals(w.Data, events.Data.Released)));
+            Assert.IsTrue(System.Array.Exists(writes, w => ReferenceEquals(w, events.Pressed)));
+            Assert.IsTrue(System.Array.Exists(writes, w => ReferenceEquals(w, events.Released)));
         }
         finally { Object.DestroyImmediate(item); }
     }
@@ -120,37 +174,144 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void ContinuousSliderDrivesPuppetValue()
     {
+        using var scene = new PreviewSceneScope();
         var panel = new GameObject("Continuous Puppet");
         try
         {
-            var value = panel.AddComponent<ValueMultiDriverFloatWrapper>().Data.Value_Element.Member;
+            var value = panel.AddResoniteComponent<ValueMultiDriverFloatWrapper>().Binding.Value_Element.Member;
             var method = typeof(AvatarToggleBuilder).GetMethod("BuildContinuousSlider");
             Assert.IsNotNull(method, "Radial puppets need a draggable slider, not only discrete menu steps");
             method.Invoke(null, new object[] { panel, value, 0.4f, 0f, 1f });
-            var slider = panel.GetComponentInChildren<FrooxEngine.UIX.SliderWrapper<float>>();
+            var slider = BindingsInChildren<FrooxEngine.UIX.Slider<float>>(panel).FirstOrDefault();
             Assert.IsNotNull(slider);
-            Assert.AreEqual(0.4f, slider.Data.Value);
-            Assert.AreEqual(0f, slider.Data.Min);
-            Assert.AreEqual(1f, slider.Data.Max);
-            var copy = panel.GetComponentInChildren<ValueCopyFloatWrapper>();
+            Assert.AreEqual(0.4f, slider.Value);
+            Assert.AreEqual(0f, slider.Min);
+            Assert.AreEqual(1f, slider.Max);
+            var copy = BindingsInChildren<ValueCopyFloatWrapper>(panel).FirstOrDefault();
             Assert.IsNotNull(copy);
-            Assert.AreSame(slider.Data.Value_Element.Member, copy.Data.Source);
-            Assert.AreSame(value, copy.Data.Target);
-            Assert.IsNotNull(panel.GetComponent<FrooxEngine.UIX.CanvasWrapper>());
+            Assert.AreSame(slider.Value_Element.Member, copy.Source);
+            Assert.AreSame(value, copy.Target);
+            Assert.IsNotNull(panel.GetResoniteComponent<FrooxEngine.UIX.Canvas>().Binding);
         }
         finally { Object.DestroyImmediate(panel); }
     }
 
     [Test]
-    public void ContinuousSliderRebuildReusesItsCopy()
+    public void ContinuousSliderExportPreservesNativeUiDefaults()
     {
+        using var scene = new PreviewSceneScope();
         var panel = new GameObject("Slider Panel");
         try
         {
-            var state = panel.AddComponent<ValueMultiDriverFloatWrapper>().Data.Value_Element.Member;
+            var state = panel.AddResoniteComponent<ValueMultiDriverFloatWrapper>().Binding.Value_Element.Member;
+            AvatarToggleBuilder.BuildContinuousSlider(panel, state, 0.3f, 0, 1);
+            foreach (var component in panel.GetComponentsInChildren<ResoniteComponent>(true))
+            {
+                if (!(component.Data is FrooxEngine.UIX.Canvas) && !(component.Data is FrooxEngine.UIX.Image) &&
+                    !(component.Data is FrooxEngine.UIX.Text) && !(component.Data is FrooxEngine.UIX.RectTransform) &&
+                    !(component.Data is FrooxEngine.UIX.Slider<float>))
+                    continue;
+                var data = new ResoniteLink.Component { Members = new Dictionary<string, ResoniteLink.Member>() };
+                component.Data.CollectMembers(data.Members, new ImmediateContext());
+                ResoniteMemberFilter.Apply(component, data);
+                Assert.IsFalse(data.Members.Keys.Any(k => k.StartsWith("_")), component.Data.GetType().Name);
+                if (component.Data is FrooxEngine.UIX.Canvas)
+                {
+                    foreach (var key in new[] { "PixelScale", "UnitScale", "Collider", "StartingOffset" })
+                        Assert.IsFalse(data.Members.ContainsKey(key), key + " must retain native initialization");
+                    Assert.IsTrue(data.Members.ContainsKey("Size"));
+                }
+                if (component.Data is FrooxEngine.UIX.Image image)
+                {
+                    Assert.Greater(image.Tint.color.a, 0f);
+                    Assert.IsTrue(data.Members.ContainsKey("Tint"));
+                    Assert.IsFalse(data.Members.ContainsKey("FillRect"));
+                    Assert.IsFalse(data.Members.ContainsKey("Material"));
+                }
+                if (component.Data is FrooxEngine.UIX.Text text)
+                {
+                    Assert.Greater(text.Color.color.a, 0f);
+                    Assert.IsFalse(data.Members.ContainsKey("Font"));
+                    Assert.IsFalse(data.Members.ContainsKey("Material"));
+                }
+            }
+        }
+        finally { Object.DestroyImmediate(panel); }
+    }
+
+    [Test]
+    public void ContinuousSliderExportsEveryReferencedField() => AssertContinuousExportReferences(false);
+
+    [Test]
+    public void ContinuousAxesExportEveryReferencedField() => AssertContinuousExportReferences(true);
+
+    static void AssertContinuousExportReferences(bool axes)
+    {
+        using var scene = new PreviewSceneScope();
+        var panel = new GameObject("Slider Panel");
+        var window = ScriptableObject.CreateInstance<ResoniteLinkWindow>();
+        try
+        {
+            var context = new SceneConverter();
+            context.EnsureInitialized(window);
+            if (axes)
+            {
+                var state = new GameObject("Axis State");
+                state.transform.SetParent(panel.transform, false);
+                AvatarToggleBuilder.BuildContinuousAxes(state, panel, Vector2.zero,
+                    Enumerable.Range(0, 9).Select(_ => new ToggleState()).ToArray(), context);
+            }
+            else
+            {
+                var value = panel.AddResoniteComponent<ValueMultiDriverFloatWrapper>().Binding.Value_Element.Member;
+                AvatarToggleBuilder.BuildContinuousSlider(panel, value, 0.3f, 0, 1);
+            }
+
+            var payloads = panel.GetComponentsInChildren<ResoniteComponent>(true).Select(component =>
+            {
+                var data = component.CollectData(context);
+                ResoniteMemberFilter.Apply(component, data);
+                return data;
+            }).ToArray();
+            var members = payloads.SelectMany(p => p.Members.Values).SelectMany(ExportMemberTree).ToArray();
+            var ids = new HashSet<string>(members.Select(m => m.ID).Concat(payloads.Select(p => p.ID)));
+            var references = members.OfType<ResoniteLink.Reference>().Where(r => !string.IsNullOrEmpty(r.TargetID)).ToArray();
+            Assert.GreaterOrEqual(references.Length, axes ? 8 : 4);
+            foreach (var reference in references)
+                Assert.IsTrue(ids.Contains(reference.TargetID), "Unexported target: " + reference.TargetID);
+
+            foreach (var handle in panel.GetComponentsInChildren<ResoniteComponent>(true)
+                .Where(c => c.name == "[Resonite] Handle" && c.Data is FrooxEngine.UIX.RectTransform))
+            {
+                var rect = (FrooxEngine.UIX.RectTransform)handle.Data;
+                Assert.IsTrue(ids.Contains(context.GetId(rect.AnchorMin_Element.Member)));
+                Assert.IsTrue(ids.Contains(context.GetId(rect.AnchorMax_Element.Member)));
+            }
+        }
+        finally { Object.DestroyImmediate(panel); Object.DestroyImmediate(window); }
+    }
+
+    static IEnumerable<ResoniteLink.Member> ExportMemberTree(ResoniteLink.Member member)
+    {
+        yield return member;
+        var children = member is ResoniteLink.SyncList list ? list.Elements :
+            member is ResoniteLink.SyncObject obj ? obj.Members.Values.AsEnumerable() : null;
+        if (children != null)
+            foreach (var child in children.SelectMany(ExportMemberTree))
+                yield return child;
+    }
+
+    [Test]
+    public void ContinuousSliderRebuildReusesItsCopy()
+    {
+        using var scene = new PreviewSceneScope();
+        var panel = new GameObject("Slider Panel");
+        try
+        {
+            var state = panel.AddResoniteComponent<ValueMultiDriverFloatWrapper>().Binding.Value_Element.Member;
             AvatarToggleBuilder.BuildContinuousSlider(panel, state, 0.3f, 0, 1);
             AvatarToggleBuilder.BuildContinuousSlider(panel, state, 0.3f, 0, 1);
-            Assert.AreEqual(1, panel.GetComponentsInChildren<ValueCopyFloatWrapper>().Length,
+            Assert.AreEqual(1, BindingsInChildren<ValueCopyFloatWrapper>(panel).Length,
                 "A realtime update must not add another driver to the same field");
         }
         finally { Object.DestroyImmediate(panel); }
@@ -159,18 +320,19 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void MenuItemOpensContinuousSlider()
     {
+        using var scene = new PreviewSceneScope();
         var menu = new GameObject("Menu Item");
         var panel = new GameObject("Slider Panel");
         try
         {
-            menu.AddComponent<FrooxEngine.ContextMenuItemSourceWrapper>();
+            menu.AddResoniteComponent<FrooxEngine.ContextMenuItemSource>();
             var method = typeof(AvatarToggleBuilder).GetMethod("BuildContinuousSliderToggle");
             Assert.IsNotNull(method, "The draggable slider must be reachable from the expression menu");
             method.Invoke(null, new object[] { menu, panel });
             Assert.IsFalse(panel.activeSelf);
-            var toggle = menu.GetComponent<FrooxEngine.ButtonToggleWrapper>();
+            var toggle = menu.GetResoniteComponent<FrooxEngine.ButtonToggle>().Binding;
             Assert.IsNotNull(toggle);
-            Assert.AreEqual(new SlotActiveField(panel.transform), toggle.Data.TargetValue);
+            Assert.AreEqual(new SlotActiveField(panel.transform), toggle.TargetValue);
         }
         finally { Object.DestroyImmediate(menu); Object.DestroyImmediate(panel); }
     }
@@ -178,6 +340,7 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void RadialMenuOffersDraggableSlider()
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("Avatar");
         var target = new GameObject("Target");
         target.transform.SetParent(root.transform);
@@ -206,11 +369,14 @@ public class ExpressionPuppetAnalyzerTests
             VRCExpressionMenuToggles.Apply(root.transform, new[] { source }, root.transform, items, selectors,
                 null, new ConversionReporter());
 
-            var panel = selectors.Find(s => s.GetComponent<FrooxEngine.UIX.CanvasWrapper>() != null);
+            var panel = selectors.Find(s => s.GetResoniteComponent<FrooxEngine.UIX.Canvas>().Binding != null);
             Assert.IsNotNull(panel, "Radial control must generate a continuous UIX panel");
             Assert.IsFalse(panel.activeSelf);
+            // Wearer-facing and at reach: identity rotation, 0.7 m ahead of and 0.2 m below the default view.
+            Assert.That(Quaternion.Angle(Quaternion.identity, panel.transform.localRotation), Is.LessThan(0.01f));
+            Assert.That(Vector3.Distance(new Vector3(0, 1.3f, 0.7f), panel.transform.localPosition), Is.LessThan(1e-4f));
             Assert.IsTrue(items.Exists(item => item.name.Contains("Drag") &&
-                Equals(item.GetComponent<FrooxEngine.ButtonToggleWrapper>()?.Data.TargetValue,
+                Equals(item.GetResoniteComponent<FrooxEngine.ButtonToggle>().Binding?.TargetValue,
                     new SlotActiveField(panel.transform))));
         }
         finally
@@ -234,6 +400,7 @@ public class ExpressionPuppetAnalyzerTests
 
     void AssertFloatOptionsCreateDistinctSelector(float[] values, float defaultValue)
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("Avatar");
         var target = new GameObject("Target");
         target.transform.SetParent(root.transform);
@@ -276,12 +443,12 @@ public class ExpressionPuppetAnalyzerTests
             var selector = selectors.Find(s => s.name.Contains("Selector Style"));
             Assert.IsNotNull(selector, "Distinct Float options must not collapse into one toggle");
             Assert.AreEqual(System.Array.IndexOf(values.OrderBy(v => v).ToArray(), defaultValue) + 1,
-                selector.GetComponent<ValueMultiDriverIntWrapper>().Data.Value,
+                selector.GetResoniteComponent<ValueMultiDriverIntWrapper>().Binding.Value,
                 "The nonzero default must retain its own selector index after the off state");
-            var cycles = items.Select(i => i.GetComponent<ButtonValueCycleIntWrapper>())
+            var cycles = items.Select(i => i.GetResoniteComponent<ButtonValueCycleIntWrapper>().Binding)
                 .Where(c => c != null).ToArray();
             Assert.AreEqual(values.Length, cycles.Length);
-            Assert.AreEqual(values.Length, cycles.Select(c => c.Data.Values[0]).Distinct().Count(),
+            Assert.AreEqual(values.Length, cycles.Select(c => c.Values[0]).Distinct().Count(),
                 "Each authored Float option needs a distinct selector index");
         }
         finally
@@ -298,11 +465,32 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void MToonPannersAreRemovedWhenScrollStops()
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("MToon lifecycle");
-        var material = new Material(Shader.Find("Standard"));
+        Shader shader = null;
+        Material material = null;
         try
         {
-            var xiexe = root.AddComponent<FrooxEngine.XiexeToonMaterialWrapper>().Data;
+            shader = ShaderUtil.CreateShaderAsset(@"Shader ""Hidden/ExpressionPuppetTests/UvScroll""
+            {
+                Properties
+                {
+                    _UvAnimScrollX (""Scroll X"", Float) = 0
+                    _UvAnimScrollY (""Scroll Y"", Float) = 0
+                    _UvAnimRotation (""Rotation"", Float) = 0
+                    _UvAnimMaskTexture (""Mask"", 2D) = """" {}
+                    _UvAnimScrollXSpeed (""Scroll X Speed"", Float) = 0
+                    _UvAnimScrollYSpeed (""Scroll Y Speed"", Float) = 0
+                    _UvAnimRotationSpeed (""Rotation Speed"", Float) = 0
+                    _UvAnimMaskTex (""Mask 10"", 2D) = """" {}
+                }
+                SubShader { Pass {} }
+            }", false);
+            shader.hideFlags = HideFlags.HideAndDontSave;
+            material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
+            material.SetTexture("_UvAnimMaskTexture", null);
+            material.SetTexture("_UvAnimMaskTex", null);
+            var xiexe = root.AddResoniteComponent<FrooxEngine.XiexeToonMaterial>().Binding;
             xiexe.MainTexture = null;
             xiexe.NormalMap = null;
             xiexe.EmissionMap = null;
@@ -319,25 +507,31 @@ public class ExpressionPuppetAnalyzerTests
                     : new[] { "MainTexturePanner", "NormalMapPanner", "EmissionMapPanner", "ShadowRampMaskPanner" };
                 foreach (var fieldName in fields)
                 {
-                    var panner = root.AddComponent<FrooxEngine.Panner2DWrapper>();
-                    panner.Data.Enabled = true;
+                    var panner = root.AddResoniteComponent<FrooxEngine.Panner2D>();
+                    panner.Binding.Enabled = true;
                     type.GetField(fieldName, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
                         .SetValue(converter, panner);
                 }
                 var method = type.GetMethod("UpdateUvScrollPanners",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
                 method.Invoke(converter, new object[] { material, xiexe });
-                Assert.AreEqual(0, root.GetComponents<FrooxEngine.Panner2DWrapper>().Length,
+                Assert.AreEqual(0, root.GetResoniteComponents<FrooxEngine.Panner2D>().Count,
                     type.Name + " left stale panners when scrolling or their target texture disappeared (scroll=" + hasScroll + ")");
                 Object.DestroyImmediate(converter);
             }
         }
-        finally { Object.DestroyImmediate(material); Object.DestroyImmediate(root); }
+        finally
+        {
+            Object.DestroyImmediate(material);
+            Object.DestroyImmediate(shader);
+            Object.DestroyImmediate(root);
+        }
     }
 
     [Test]
     public void LocalSpaceScaleConstraintUsesLocalSourceAtFullWeight()
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("Local scale test");
         var source = new GameObject("Local source");
         var target = new GameObject("Local target");
@@ -355,9 +549,9 @@ public class ExpressionPuppetAnalyzerTests
                 .GetMethod("Convert", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             method.Invoke(converter, new object[] { data, data.Sources, "Local scale test" });
             Assert.IsNotNull(converter.BlendGraph, "Local-space scale must not switch to global copying at full weight");
-            Assert.IsNull(converter.CopyScale);
-            Assert.AreEqual(0, converter.BlendGraph.GetComponents<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalTransformWrapper>().Length);
-            Assert.AreEqual(1, converter.BlendGraph.GetComponents<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalTransformWrapper>().Length);
+            Assert.IsNull(converter.CopyScale.Container);
+            Assert.AreEqual(0, converter.BlendGraph.GetResoniteComponents<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalTransform>().Count);
+            Assert.AreEqual(1, converter.BlendGraph.GetResoniteComponents<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalTransform>().Count);
         }
         finally { Object.DestroyImmediate(root); }
     }
@@ -365,6 +559,7 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void ScaleConstraintBlendsBothSourcesAtPartialWeight()
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("Scale blend test");
         var first = new GameObject("First source");
         var second = new GameObject("Second source");
@@ -389,37 +584,37 @@ public class ExpressionPuppetAnalyzerTests
             converter.Initialize(constraint);
             converter.UpdateConversion(new ImmediateContext());
             Assert.IsNotNull(converter.BlendGraph, "A multi-source scale must not copy just one source at full strength");
-            Assert.IsNull(converter.CopyScale);
+            Assert.IsNull(converter.CopyScale.Container);
             Assert.AreEqual(0, converter.BlendFollowers.Count, "Global scale must not be sampled from unrotated followers");
-            Assert.AreEqual(2, converter.BlendGraph.GetComponents<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalTransformWrapper>().Length);
-            var restToGlobal = converter.BlendGraph.GetComponent<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalScaleToGlobalWrapper>();
-            var resultToLocal = converter.BlendGraph.GetComponent<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalScaleToLocalWrapper>();
+            Assert.AreEqual(2, converter.BlendGraph.GetResoniteComponents<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalTransform>().Count);
+            var restToGlobal = converter.BlendGraph.GetResoniteComponent<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.LocalScaleToGlobal>().Binding;
+            var resultToLocal = converter.BlendGraph.GetResoniteComponent<FrooxEngine.ProtoFlux.Runtimes.Execution.Nodes.FrooxEngine.Transform.GlobalScaleToLocal>().Binding;
             Assert.IsNotNull(restToGlobal, "The authored rest scale must be converted to global scale");
             Assert.IsNotNull(resultToLocal, "The blended global scale must be converted for the rotated target");
-            var restBlend = converter.BlendGraph.GetComponents<ProtoFluxValueLerpFloat3Wrapper>()
-                .Single(node => ReferenceEquals(node.Data, resultToLocal.Data.GlobalScale));
-            Assert.AreSame(restToGlobal.Data, restBlend.Data.From,
+            var restBlend = converter.BlendGraph.GetResoniteComponents<ProtoFluxValueLerpFloat3Wrapper>()
+                .Single(node => ReferenceEquals(node, resultToLocal.GlobalScale));
+            Assert.AreSame(restToGlobal, restBlend.From,
                 "The authored rest scale must feed the global-space blend");
-            Assert.AreSame(converter.BlendGraph.GetComponent<ProtoFluxValueInputFloat3Wrapper>().Data,
-                restToGlobal.Data.LocalScale);
+            Assert.AreSame(converter.BlendGraph.GetResoniteComponent<ProtoFluxValueInputFloat3Wrapper>().Binding,
+                restToGlobal.LocalScale);
             Assert.AreSame(target.transform.GetSlot(),
-                ((ProtoFluxSlotInputWrapper)converter.BlendGraph.GetComponents<ProtoFluxSlotInputWrapper>()
-                    .Single(s => ReferenceEquals(s.Data, resultToLocal.Data.Instance))).Data.Target);
-            var drive = converter.BlendGraph.GetComponent<ProtoFluxFieldDriveFloat3Wrapper>();
-            var proxy = converter.BlendGraph.GetComponent<ProtoFluxFieldDriveProxyFloat3Wrapper>();
+                converter.BlendGraph.GetResoniteComponents<ProtoFluxSlotInputWrapper>()
+                    .Single(s => ReferenceEquals(s, resultToLocal.Instance)).Target);
+            var drive = converter.BlendGraph.GetResoniteComponent<ProtoFluxFieldDriveFloat3Wrapper>().Binding;
+            var proxy = converter.BlendGraph.GetResoniteComponent<ProtoFluxFieldDriveProxyFloat3Wrapper>().Binding;
             Assert.IsNotNull(drive);
-            Assert.AreSame(drive.Data, proxy.Data.Node);
-            Assert.IsInstanceOf<SlotScaleField>(proxy.Data.Drive);
-            var field = (SlotScaleField)proxy.Data.Drive;
+            Assert.AreSame(drive, proxy.Node);
+            Assert.IsInstanceOf<SlotScaleField>(proxy.Drive);
+            var field = (SlotScaleField)proxy.Drive;
             Assert.AreSame(target.transform, field.Transform);
             Assert.AreEqual("scale-test", field.GetFieldId(new ResoniteLink.Slot
                 { Scale = new ResoniteLink.Field_float3 { ID = "scale-test" } }));
-            var restInputs = converter.BlendGraph.GetComponents<ProtoFluxValueInputFloat3Wrapper>()
-                .Select(input => input.Data.Value).ToArray();
+            var restInputs = converter.BlendGraph.GetResoniteComponents<ProtoFluxValueInputFloat3Wrapper>()
+                .Select(input => input.Value).ToArray();
             CollectionAssert.Contains(restInputs, constraint.scaleAtRest,
                 "The authored rest scale must be used even when the target's current scale differs");
-            var weights = converter.BlendGraph.GetComponents<ProtoFluxValueInputFloatWrapper>()
-                .Select(input => input.Data.Value).ToArray();
+            var weights = converter.BlendGraph.GetResoniteComponents<ProtoFluxValueInputFloatWrapper>()
+                .Select(input => input.Value).ToArray();
             CollectionAssert.Contains(weights, 2f / 3f, "Both sources must contribute their relative weights");
             CollectionAssert.Contains(weights, 0.375f, "Source sum and global weight must blend with rest scale");
         }
@@ -429,6 +624,7 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void LilToonDisabledReflectionClearsShinyFields()
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("Unlit lilToon reflections");
         var material = new Material(Shader.Find("lilToon"));
         try
@@ -438,7 +634,7 @@ public class ExpressionPuppetAnalyzerTests
             material.SetFloat("_Smoothness", 1);
             material.SetFloat("_UseShadow", 0);
             material.SetFloat("_UseEmission", 0);
-            var xiexe = root.AddComponent<FrooxEngine.XiexeToonMaterialWrapper>().Data;
+            var xiexe = root.AddResoniteComponent<FrooxEngine.XiexeToonMaterial>().Binding;
             xiexe.Reflectivity = 1;
             xiexe.Metallic = 0.8f;
             xiexe.Glossiness = 0.9f;
@@ -461,6 +657,7 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void LilToonReenabledReflectionRestoresHighlights()
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("Toggle lilToon reflections");
         var material = new Material(Shader.Find("lilToon"));
         try
@@ -468,7 +665,7 @@ public class ExpressionPuppetAnalyzerTests
             material.SetFloat("_UseReflection", 0);
             material.SetFloat("_UseShadow", 0);
             material.SetFloat("_UseEmission", 0);
-            var xiexe = root.AddComponent<FrooxEngine.XiexeToonMaterialWrapper>().Data;
+            var xiexe = root.AddResoniteComponent<FrooxEngine.XiexeToonMaterial>().Binding;
             var converter = new LilToonXiexeConverter(xiexe, material, new ImmediateContext(), new LilToonAssetCache());
             converter.UpdateConversion();
             Assert.AreEqual(0, xiexe.Reflectivity);
@@ -511,6 +708,7 @@ public class ExpressionPuppetAnalyzerTests
 
     void AssertLilToonNormalWarning(bool usePrimary, bool useMask, string expected, bool useSecondary = true)
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("Normal layers");
         var material = new Material(Shader.Find("lilToon"));
         var primary = new Texture2D(2, 2);
@@ -529,7 +727,7 @@ public class ExpressionPuppetAnalyzerTests
             material.SetTexture("_Bump2ndMap", secondary);
             if (useMask) material.SetTexture("_Bump2ndScaleMask", mask);
             var context = new ImmediateContext();
-            var converter = new LilToonXiexeConverter(root.AddComponent<FrooxEngine.XiexeToonMaterialWrapper>().Data,
+            var converter = new LilToonXiexeConverter(root.AddResoniteComponent<FrooxEngine.XiexeToonMaterial>().Binding,
                 material, context, new LilToonAssetCache());
             typeof(LilToonXiexeConverter).GetMethod("UpdateNormal",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(converter, null);
@@ -559,6 +757,7 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void LilToonUsesSecondaryNormalWhenPrimaryTextureMissing()
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("Normal fallback");
         var material = new Material(Shader.Find("lilToon"));
         var secondary = new Texture2D(2, 2);
@@ -569,7 +768,7 @@ public class ExpressionPuppetAnalyzerTests
             material.SetFloat("_Bump2ndScale", 0.75f);
             material.SetTexture("_Bump2ndMap", secondary);
             var context = new ImmediateContext();
-            var xiexe = root.AddComponent<FrooxEngine.XiexeToonMaterialWrapper>().Data;
+            var xiexe = root.AddResoniteComponent<FrooxEngine.XiexeToonMaterial>().Binding;
             var converter = new LilToonXiexeConverter(xiexe, material, context, new LilToonAssetCache());
             typeof(LilToonXiexeConverter).GetMethod("UpdateNormal",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(converter, null);
@@ -597,12 +796,13 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void ContinuousAxisPanelBlendsBothParameters()
     {
+        using var scene = new PreviewSceneScope();
         var state = new GameObject("Continuous Axes");
         var panel = new GameObject("Axis Panel");
         var targetObject = new GameObject("Animated Field");
         try
         {
-            var target = new FloatFieldTarget(targetObject.AddComponent<ValueMultiDriverFloatWrapper>().Data.Value_Element.Member);
+            var target = new FloatFieldTarget(targetObject.AddResoniteComponent<ValueMultiDriverFloatWrapper>().Binding.Value_Element.Member);
             var grid = new List<ToggleState>();
             foreach (var y in new[] { -1f, 0f, 1f })
                 foreach (var x in new[] { -1f, 0f, 1f })
@@ -614,10 +814,10 @@ public class ExpressionPuppetAnalyzerTests
             var method = typeof(AvatarToggleBuilder).GetMethod("BuildContinuousAxes");
             Assert.IsNotNull(method, "Axis puppets need two live sliders and a 2D state driver");
             method.Invoke(null, new object[] { state, panel, Vector2.zero, grid, null });
-            Assert.AreEqual(2, panel.GetComponentsInChildren<FrooxEngine.UIX.SliderWrapper<float>>().Length);
-            Assert.AreEqual(1, state.GetComponents<ValueGradientDriverFloatWrapper>().Length,
+            Assert.AreEqual(2, BindingsInChildren<FrooxEngine.UIX.Slider<float>>(panel).Length);
+            Assert.AreEqual(1, state.GetResoniteComponents<ValueGradientDriverFloatWrapper>().Count,
                 "The Y gradient should combine the three X rows into the target field");
-            Assert.AreEqual(3, state.GetComponentsInChildren<ValueCopyFloatWrapper>().Length);
+            Assert.AreEqual(3, BindingsInChildren<ValueCopyFloatWrapper>(state).Length);
         }
         finally { Object.DestroyImmediate(panel); Object.DestroyImmediate(state); Object.DestroyImmediate(targetObject); }
     }
@@ -625,6 +825,7 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void ContinuousAxisPanelLabelsBothSliders()
     {
+        using var scene = new PreviewSceneScope();
         var state = new GameObject("Axis State");
         var panel = new GameObject("Axis Panel");
         try
@@ -632,8 +833,8 @@ public class ExpressionPuppetAnalyzerTests
             var grid = new List<ToggleState>();
             for (var i = 0; i < 9; i++) grid.Add(new ToggleState());
             AvatarToggleBuilder.BuildContinuousAxes(state, panel, Vector2.zero, grid, null);
-            var labels = panel.GetComponentsInChildren<FrooxEngine.UIX.TextWrapper>()
-                .Select(t => t.Data.Content).ToArray();
+            var labels = BindingsInChildren<FrooxEngine.UIX.Text>(panel)
+                .Select(t => t.Content).ToArray();
             CollectionAssert.AreEquivalent(new[] { "Horizontal", "Vertical" }, labels);
         }
         finally { Object.DestroyImmediate(panel); Object.DestroyImmediate(state); }
@@ -642,6 +843,7 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void ContinuousAxisBoolSwitchesFromBothParameters()
     {
+        using var scene = new PreviewSceneScope();
         var state = new GameObject("Axis State");
         var panel = new GameObject("Axis Panel");
         var target = new GameObject("Target");
@@ -657,11 +859,11 @@ public class ExpressionPuppetAnalyzerTests
                     grid.Add(sample);
                 }
             AvatarToggleBuilder.BuildContinuousAxes(state, panel, Vector2.zero, grid, null);
-            var outer = state.GetComponent<ValueGradientDriverBoolWrapper>();
+            var outer = state.GetResoniteComponent<ValueGradientDriverBoolWrapper>().Binding;
             Assert.IsNotNull(outer, "Boolean animation must follow both live axes");
-            Assert.IsFalse(outer.Data.Interpolate);
-            Assert.AreEqual(new SlotActiveField(target.transform), outer.Data.Target);
-            Assert.AreEqual(3, state.GetComponents<FrooxEngine.ValueCopyWrapper<bool>>().Length);
+            Assert.IsFalse(outer.Interpolate);
+            Assert.AreEqual(new SlotActiveField(target.transform), outer.Target);
+            Assert.AreEqual(3, state.GetResoniteComponents<FrooxEngine.ValueCopy<bool>>().Count);
         }
         finally { Object.DestroyImmediate(target); Object.DestroyImmediate(panel); Object.DestroyImmediate(state); }
     }
@@ -676,6 +878,7 @@ public class ExpressionPuppetAnalyzerTests
         public string GetIdOrAllocate(FrooxEngine.IWorldElement o, out bool allocated) { allocated = false; return null; }
         public void RemoveId(FrooxEngine.IWorldElement o) { }
         public FrooxEngine.IWorldElement TryResolveId(string id) => null;
+        public void NotifyOfStaticMesh(Mesh combinedMesh, int materialStartIndex, Material[] materials) { }
         public void RunOnConverted(Component component, System.Action action) => action();
         public FrooxEngine.IAssetProvider<FrooxEngine.Mesh> GetMesh(Mesh mesh, AssetMessagePostProcessor p = null) => null;
         public FrooxEngine.IAssetProvider<FrooxEngine.ITexture> GetITexture(Texture texture, AssetMessagePostProcessor p = null) => null;
@@ -691,13 +894,14 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void ContinuousAxisMaterialSwitchesFromBothParameters()
     {
+        using var scene = new PreviewSceneScope();
         var state = new GameObject("Axis State");
         var panel = new GameObject("Axis Panel");
         var target = new GameObject("Target");
         try
         {
             var renderer = target.AddComponent<MeshRenderer>();
-            renderer.gameObject.AddComponent<FrooxEngine.MeshRendererWrapper>().Data.Materials.Add();
+            renderer.gameObject.AddResoniteComponent<FrooxEngine.MeshRenderer>().Binding.Materials.Add();
             var slot = new MaterialSlotTarget(renderer, 0);
             var grid = new List<ToggleState>();
             for (var i = 0; i < 9; i++)
@@ -707,10 +911,10 @@ public class ExpressionPuppetAnalyzerTests
                 grid.Add(sample);
             }
             AvatarToggleBuilder.BuildContinuousAxes(state, panel, Vector2.zero, grid, new ImmediateContext());
-            Assert.IsNotNull(state.GetComponent<ValueGradientDriverIntWrapper>(),
+            Assert.IsNotNull(state.GetResoniteComponent<ValueGradientDriverIntWrapper>().Binding,
                 "Material swaps must switch at 2D grid points while dragging");
-            Assert.AreEqual(1, state.GetComponents<AssetMultiplexerMaterialWrapper>().Length);
-            Assert.AreEqual(3, state.GetComponents<FrooxEngine.ValueCopyWrapper<int>>().Length);
+            Assert.AreEqual(1, state.GetResoniteComponents<AssetMultiplexerMaterialWrapper>().Count);
+            Assert.AreEqual(3, state.GetResoniteComponents<FrooxEngine.ValueCopy<int>>().Count);
         }
         finally { Object.DestroyImmediate(target); Object.DestroyImmediate(panel); Object.DestroyImmediate(state); }
     }
@@ -718,6 +922,7 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void TwoAxisMenuOffersContinuousControls()
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("Avatar");
         var target = new GameObject("Target");
         target.transform.SetParent(root.transform);
@@ -748,14 +953,14 @@ public class ExpressionPuppetAnalyzerTests
             source.Controllers.Add(controller);
             VRCExpressionMenuToggles.Apply(root.transform, new[] { source }, root.transform, items, selectors,
                 null, new ConversionReporter());
-            var panel = selectors.Find(s => s.GetComponent<FrooxEngine.UIX.CanvasWrapper>() != null);
+            var panel = selectors.Find(s => s.GetResoniteComponent<FrooxEngine.UIX.Canvas>().Binding != null);
             Assert.IsNotNull(panel, "2D puppets need a draggable X/Y panel");
-            Assert.AreEqual(2, panel.GetComponentsInChildren<FrooxEngine.UIX.SliderWrapper<float>>(true).Length);
+            Assert.AreEqual(2, BindingsInChildren<FrooxEngine.UIX.Slider<float>>(panel).Length);
             Assert.IsFalse(panel.activeSelf);
-            Assert.IsFalse(selectors.Exists(s => s.GetComponent<ValueMultiDriverIntWrapper>() != null),
+            Assert.IsFalse(selectors.Exists(s => s.GetResoniteComponent<ValueMultiDriverIntWrapper>().Binding != null),
                 "The discrete selector must not compete to drive the same properties");
             Assert.IsTrue(items.Exists(item => item.name.Contains("Drag") &&
-                Equals(item.GetComponent<FrooxEngine.ButtonToggleWrapper>()?.Data.TargetValue,
+                Equals(item.GetResoniteComponent<FrooxEngine.ButtonToggle>().Binding?.TargetValue,
                     new SlotActiveField(panel.transform))));
         }
         finally
@@ -790,6 +995,7 @@ public class ExpressionPuppetAnalyzerTests
 
     static (List<string> warnings, List<string> itemNames) RunFourAxisOpposingDefaults(bool defaultOnly)
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("Avatar");
         var target = new GameObject("Target");
         target.transform.SetParent(root.transform);
@@ -895,6 +1101,7 @@ public class ExpressionPuppetAnalyzerTests
     [Test]
     public void TwoAxisDiagonalSamplesBothParameters()
     {
+        using var scene = new PreviewSceneScope();
         var root = new GameObject("Root");
         var target = new GameObject("Target");
         target.transform.SetParent(root.transform);

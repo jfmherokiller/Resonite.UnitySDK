@@ -1,7 +1,7 @@
-using UnityEngine;
+using System;
 
-[AddComponentMenu("FrooxEngine/Transform/Drivers/ValueCopy<bool>")]
-public class ValueCopyBoolWrapper : FrooxEngine.ValueCopyWrapper<bool>
+[Serializable]
+[ResoniteTypeName("[FrooxEngine]FrooxEngine.ValueCopy<bool>")]
+public class ValueCopyBoolWrapper : FrooxEngine.ValueCopy<bool>
 {
-    public override string TypeName => "[FrooxEngine]FrooxEngine.ValueCopy<bool>";
 }

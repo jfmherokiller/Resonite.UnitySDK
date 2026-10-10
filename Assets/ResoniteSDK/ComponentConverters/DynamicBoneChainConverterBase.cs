@@ -59,7 +59,7 @@ public class DynamicBoneChainSettings
 /// The physics models are different, so the simulation parameters are mapped with heuristics that give
 /// a reasonably similar feel. They'll likely need some tweaking in Resonite for best results.
 /// </summary>
-public abstract class DynamicBoneChainConverterBase : ResoniteSingleComponentConverter<Component, FrooxEngine.DynamicBoneChainWrapper>
+public abstract class DynamicBoneChainConverterBase : ResoniteSingleComponentConverter<Component, FrooxEngine.DynamicBoneChain>
 {
     /// <summary>
     /// A literal zero radius (a source PhysBone/Dynamic Bone whose radius was simply never configured) leaves the
@@ -87,7 +87,7 @@ public abstract class DynamicBoneChainConverterBase : ResoniteSingleComponentCon
     protected override void UpdateConversion(Component target, IConversionContext context)
     {
         var settings = ReadSettings(target);
-        var chain = Binding.Data;
+        var chain = Binding;
 
         // Only what's set is sent, everything else is left at Resonite's defaults
         var members = new List<string> { "Inertia", "InertiaForce", "Damping", "Elasticity", "Bones", "StaticColliders" };
@@ -131,7 +131,7 @@ public abstract class DynamicBoneChainConverterBase : ResoniteSingleComponentCon
         // Bones' _posDrive/_rotDrive are only linked by DynamicBoneChain.Bone.Assign() (Resonite doesn't link them
         // automatically on creation the way a component links its own internal drives). SetupBones links them
         // explicitly below - without that link Bone.IsValid is permanently false and the chain never simulates.
-        var filter = ResoniteMemberFilter.Set(Binding, members.ToArray());
+        var filter = ResoniteMemberFilter.Set(Container, members.ToArray());
 
         SetupBones(chain, settings);
         SetupColliders(chain, settings.Colliders, context);
@@ -228,8 +228,8 @@ public abstract class DynamicBoneChainConverterBase : ResoniteSingleComponentCon
 
                     var pending = FindColliderConverter(collider);
 
-                    if (pending != null && Binding != null)
-                        AddColliders(Binding.Data, pending);
+                    if (pending != null && Container != null && Binding != null)
+                        AddColliders(Binding, pending);
                 });
         }
     }

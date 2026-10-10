@@ -18,6 +18,9 @@ using UnityEngine;
 [DisallowMultipleComponent]
 [AddComponentMenu("")]
 public class ResoniteMemberFilter : MonoBehaviour
+#if VRC_SDK_VRCSDK3
+    , VRC.SDKBase.IEditorOnly
+#endif
 {
     [Serializable]
     public class Entry

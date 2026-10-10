@@ -48,15 +48,7 @@ public class RendererEnabledTarget : ToggleTarget<bool>
     {
         context.RunOnConverted(Renderer, () =>
         {
-            FrooxEngine.IField<bool> field = null;
-
-            var skinned = Renderer.GetComponent<FrooxEngine.SkinnedMeshRendererWrapper>();
-            var mesh = Renderer.GetComponent<FrooxEngine.MeshRendererWrapper>();
-
-            if (Renderer is SkinnedMeshRenderer && skinned != null)
-                field = skinned.Data.Enabled_Element.Member;
-            else if (mesh != null)
-                field = mesh.Data.Enabled_Element.Member;
+            var field = MeshRendererHelper.GetConvertedBinding(Renderer)?.Enabled_Element.Member;
 
             if (field != null)
                 onResolved(field);
@@ -66,7 +58,7 @@ public class RendererEnabledTarget : ToggleTarget<bool>
 
 /// <summary>
 /// The Enabled state of a converted DynamicBoneChain (PhysBone / legacy Dynamic Bone), identified by its
-/// source component (the VRCPhysBone or DynamicBone, whose converter owns the DynamicBoneChainWrapper).
+/// source component (the VRCPhysBone or DynamicBone, whose converter owns the DynamicBoneChain binding).
 /// </summary>
 public class DynamicBoneChainEnabledTarget : ToggleTarget<bool>
 {
@@ -81,10 +73,10 @@ public class DynamicBoneChainEnabledTarget : ToggleTarget<bool>
     {
         context.RunOnConverted(Source, () =>
         {
-            var wrapper = Source.GetComponent<FrooxEngine.DynamicBoneChainWrapper>();
+            var wrapper = Source.gameObject.GetResoniteComponent<FrooxEngine.DynamicBoneChain>();
 
             if (wrapper != null)
-                onResolved(wrapper.Data.Enabled_Element.Member);
+                onResolved(wrapper.Binding.Enabled_Element.Member);
         });
     }
 }
@@ -138,17 +130,19 @@ public class MaterialSlotTarget
     /// </summary>
     public void ResolveSlot(IConversionContext context, Action<FrooxEngine.AssetRef<FrooxEngine.Material>> onResolved)
     {
+        if (Renderer == null || Slot < 0 || Slot >= Renderer.sharedMaterials.Length)
+            return;
+
         context.RunOnConverted(Renderer, () =>
         {
-            FrooxEngine.MeshRenderer data = null;
+            var data = MeshRendererHelper.GetConvertedBinding(Renderer);
+            if (data == null)
+                return;
 
-            if (Renderer is SkinnedMeshRenderer)
-                data = Renderer.GetComponent<FrooxEngine.SkinnedMeshRendererWrapper>()?.Data;
-            else
-                data = Renderer.GetComponent<FrooxEngine.MeshRendererWrapper>()?.Data;
-
-            if (data != null && Slot < data.Materials.Count)
-                onResolved(data.Materials.GetElement(Slot).Member);
+            // Initialize stable slot members before SetFrom fills their material values.
+            while (data.Materials.Count <= Slot)
+                data.Materials.Add(null);
+            onResolved(data.Materials.GetElement(Slot).Member);
         });
     }
 }

@@ -20,7 +20,7 @@ public struct AssetMap<A> : IEquatable<AssetMap<A>>
         PostProcessor = postProcessor;
     }
 
-    public bool Equals(AssetMap<A> other) => Asset == other.Asset && PostProcessor == other.PostProcessor;
+    public bool Equals(AssetMap<A> other) => Asset == other.Asset && Equals(PostProcessor, other.PostProcessor);
     public override int GetHashCode() => HashCode.Combine(Asset, PostProcessor);
 }
 
@@ -82,6 +82,13 @@ public class AssetConversionManager
 
         foreach (var converter in converters)
         {
+            if (!converter.HasValidPostProcessorIdentity)
+            {
+                // Legacy or lost processing recipes cannot safely be treated as raw assets.
+                UnityEngine.Object.DestroyImmediate(converter.gameObject);
+                continue;
+            }
+
             if (converter.Source == null || converter.Provider == null)
             {
                 // TODO!!! Cleanup?
@@ -122,6 +129,27 @@ public class AssetConversionManager
 
     public bool HasMesh(UnityEngine.Mesh mesh, AssetMessagePostProcessor postProcessor = null) =>
         _meshes.ContainsKey(new AssetMap<UnityEngine.Mesh>(mesh, postProcessor));
+
+    public void RefreshAssetVariants(UnityEngine.Object source)
+    {
+        IEnumerable<AssetConverter> variants = source switch
+        {
+            UnityEngine.Mesh mesh => _meshes.Where(p => p.Key.Asset == mesh).Select(p => p.Value),
+            UnityEngine.Texture2D texture => _textures.Where(p => p.Key.Asset == texture).Select(p => p.Value),
+            UnityEngine.Cubemap cubemap => _cubemaps.Where(p => p.Key.Asset == cubemap).Select(p => p.Value),
+            UnityEngine.AudioClip clip => _audioClips.Where(p => p.Key.Asset == clip).Select(p => p.Value),
+            _ => Enumerable.Empty<AssetConverter>()
+        };
+        foreach (var converter in variants)
+            ScheduleConversion(converter, converter.transform);
+    }
+
+    void ScheduleConversion(AssetConverter converter, Transform providerRoot)
+    {
+        if (!_scheduledConversions.Contains(converter))
+            _scheduledConversions.Enqueue(converter);
+        _updatedAssetProviderRoots.Add(providerRoot);
+    }
 
     public bool HasTexture2D(UnityEngine.Texture2D texture2D, AssetMessagePostProcessor postProcessor = null) =>
         _textures.ContainsKey(new AssetMap<UnityEngine.Texture2D>(texture2D, postProcessor));
@@ -184,9 +212,7 @@ public class AssetConversionManager
 
         if (needsToConvert)
         {
-            _scheduledConversions.Enqueue(converter);
-
-            _updatedAssetProviderRoots.Add(converter.Provider.Container.transform);
+            ScheduleConversion(converter, converter.Provider.Container.transform);
         }
 
         return converter.Provider.Binding;

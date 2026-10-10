@@ -101,7 +101,7 @@ public static class AvatarToggleBuilder
     // ProtoFluxGraph.End removes every other Resonite component on its host.
     static ProtoFluxGraph ButtonGraph(GameObject item, out FrooxEngine.IButton button)
     {
-        button = item.GetComponent<FrooxEngine.ContextMenuItemSourceWrapper>().Data;
+        button = item.GetResoniteComponent<FrooxEngine.ContextMenuItemSource>().Binding;
 
         var graph = new ProtoFluxGraph(GeneratedObjectHelper.EnsureChild(item.transform, "[Resonite] Button Flux"));
         graph.Begin();
@@ -113,7 +113,7 @@ public static class AvatarToggleBuilder
     /// </summary>
     public static FrooxEngine.IField<bool> BuildToggleState(GameObject item, bool defaultOn, ToggleState on, ToggleState off, IConversionContext context)
     {
-        var stateDriver = ConverterComponentHelper.GetOrAdd<ValueMultiDriverBoolWrapper>(item).Data;
+        var stateDriver = ConverterComponentHelper.GetOrAdd<ValueMultiDriverBoolWrapper>(item).Binding;
         stateDriver.Value = defaultOn;
         stateDriver.Drives.Clear();
 
@@ -125,7 +125,7 @@ public static class AvatarToggleBuilder
 
         for (int i = 0; i < bools.Count; i++)
         {
-            var driver = boolDrivers[i].Data;
+            var driver = boolDrivers[i].Binding;
             var target = bools[i];
 
             driver.TrueValue = on.Bools.TryGetValue(target.Key, out var onValue) ? onValue.value : target.RestValue;
@@ -142,7 +142,7 @@ public static class AvatarToggleBuilder
 
         for (int i = 0; i < floats.Count; i++)
         {
-            var driver = floatDrivers[i].Data;
+            var driver = floatDrivers[i].Binding;
             var target = floats[i];
 
             driver.TrueValue = on.Floats.TryGetValue(target.Key, out var onValue) ? onValue.value : target.RestValue;
@@ -157,7 +157,7 @@ public static class AvatarToggleBuilder
 
         for (int i = 0; i < materials.Count; i++)
         {
-            var driver = materialDrivers[i].Data;
+            var driver = materialDrivers[i].Binding;
             var target = materials[i];
 
             driver.TrueTarget = GetMaterial(context, on.ResolveMaterial(target));
@@ -175,7 +175,7 @@ public static class AvatarToggleBuilder
     /// </summary>
     public static void BuildToggleLink(GameObject item, FrooxEngine.IField<bool> toggleState)
     {
-        var button = ConverterComponentHelper.GetOrAdd<FrooxEngine.ButtonToggleWrapper>(item).Data;
+        var button = ConverterComponentHelper.GetOrAdd<FrooxEngine.ButtonToggle>(item).Binding;
         button.TargetValue = toggleState;
     }
 
@@ -187,7 +187,7 @@ public static class AvatarToggleBuilder
     public static FrooxEngine.IField<int> BuildSelector(GameObject stateObject, int defaultIndex, IReadOnlyList<ToggleState> states,
         IConversionContext context)
     {
-        var index = ConverterComponentHelper.GetOrAdd<ValueMultiDriverIntWrapper>(stateObject).Data;
+        var index = ConverterComponentHelper.GetOrAdd<ValueMultiDriverIntWrapper>(stateObject).Binding;
         index.Value = defaultIndex;
         index.Drives.Clear();
 
@@ -198,7 +198,7 @@ public static class AvatarToggleBuilder
 
         for (int i = 0; i < bools.Count; i++)
         {
-            var multiplexer = boolMultiplexers[i].Data;
+            var multiplexer = boolMultiplexers[i].Binding;
             var target = bools[i];
 
             multiplexer.Values.Clear();
@@ -214,7 +214,7 @@ public static class AvatarToggleBuilder
 
         for (int i = 0; i < floats.Count; i++)
         {
-            var multiplexer = floatMultiplexers[i].Data;
+            var multiplexer = floatMultiplexers[i].Binding;
             var target = floats[i];
 
             multiplexer.Values.Clear();
@@ -231,7 +231,7 @@ public static class AvatarToggleBuilder
 
         for (int i = 0; i < materials.Count; i++)
         {
-            var multiplexer = materialMultiplexers[i].Data;
+            var multiplexer = materialMultiplexers[i].Binding;
             var target = materials[i];
 
             multiplexer.Assets.Clear();
@@ -254,15 +254,15 @@ public static class AvatarToggleBuilder
     public static void BuildSelectorOption(GameObject item, FrooxEngine.IField<int> selectorIndex, int index, int? offIndex = null)
     {
         // The item may have been built with the other kind of button before
-        var set = item.GetComponent<ButtonValueSetIntWrapper>();
-        var cycle = item.GetComponent<ButtonValueCycleIntWrapper>();
+        var set = item.GetResoniteComponent<ButtonValueSetIntWrapper>();
+        var cycle = item.GetResoniteComponent<ButtonValueCycleIntWrapper>();
 
         if (offIndex.HasValue && offIndex.Value != index)
         {
             ConverterComponentHelper.Remove(ref set);
 
             // Cycles to the next value after the current one, or to the first if the current value isn't in the list
-            var button = ConverterComponentHelper.GetOrAdd<ButtonValueCycleIntWrapper>(item).Data;
+            var button = ConverterComponentHelper.GetOrAdd<ButtonValueCycleIntWrapper>(item).Binding;
             button.TargetValue = selectorIndex;
             button.Values.Clear();
             button.Values.Add(index);
@@ -272,7 +272,7 @@ public static class AvatarToggleBuilder
         {
             ConverterComponentHelper.Remove(ref cycle);
 
-            var button = ConverterComponentHelper.GetOrAdd<ButtonValueSetIntWrapper>(item).Data;
+            var button = ConverterComponentHelper.GetOrAdd<ButtonValueSetIntWrapper>(item).Binding;
             button.TargetValue = selectorIndex;
             button.SetValue = index;
         }
@@ -288,7 +288,7 @@ public static class AvatarToggleBuilder
     public static FrooxEngine.IField<float> BuildPuppet(GameObject stateObject, float defaultValue,
         IReadOnlyList<(float position, ToggleState state)> samples, IConversionContext context)
     {
-        var value = ConverterComponentHelper.GetOrAdd<ValueMultiDriverFloatWrapper>(stateObject).Data;
+        var value = ConverterComponentHelper.GetOrAdd<ValueMultiDriverFloatWrapper>(stateObject).Binding;
         value.Value = defaultValue;
         value.Drives.Clear();
 
@@ -299,7 +299,7 @@ public static class AvatarToggleBuilder
 
         for (int i = 0; i < floats.Count; i++)
         {
-            var driver = floatDrivers[i].Data;
+            var driver = floatDrivers[i].Binding;
             var target = floats[i];
 
             driver.Interpolate = true;
@@ -320,7 +320,7 @@ public static class AvatarToggleBuilder
 
         for (int i = 0; i < bools.Count; i++)
         {
-            var driver = boolDrivers[i].Data;
+            var driver = boolDrivers[i].Binding;
             var target = bools[i];
 
             driver.Interpolate = false;
@@ -344,8 +344,8 @@ public static class AvatarToggleBuilder
 
         for (int i = 0; i < materials.Count; i++)
         {
-            var picker = materialPickers[i].Data;
-            var multiplexer = materialMultiplexers[i].Data;
+            var picker = materialPickers[i].Binding;
+            var multiplexer = materialMultiplexers[i].Binding;
             var target = materials[i];
 
             picker.Interpolate = false;
@@ -379,29 +379,37 @@ public static class AvatarToggleBuilder
 
     static void SetupSliderCanvas(GameObject panel, float height)
     {
-        var canvas = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.CanvasWrapper>(panel).Data;
+        var canvas = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.Canvas>(panel).Binding;
         canvas.Size = new Vector2(0.5f, height);
         canvas.AcceptRemoteTouch = true;
         canvas.AcceptPhysicalTouch = true;
-        ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.RectTransformWrapper>(panel);
+        ResoniteMemberFilter.Set(panel.GetResoniteComponent<FrooxEngine.UIX.Canvas>().Container,
+            "Size", "AcceptRemoteTouch", "AcceptPhysicalTouch");
+        var rootRect = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.RectTransform>(panel);
+        ResoniteMemberFilter.Set(rootRect.Container);
     }
 
     static void AddSlider(GameObject panel, string name, FrooxEngine.IField<float> value,
         float initial, float min, float max, float bottom, float top)
     {
         var track = GeneratedObjectHelper.EnsureChild(panel.transform, name);
-        var rect = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.RectTransformWrapper>(track).Data;
+        var rect = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.RectTransform>(track).Binding;
         rect.AnchorMin = new Vector2(0.08f, bottom);
         rect.AnchorMax = new Vector2(0.92f, top);
         rect.OffsetMin = Vector2.zero;
         rect.OffsetMax = Vector2.zero;
-        ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.ImageWrapper>(track).Data.InteractionTarget = true;
-        var caption = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.TextWrapper>(track).Data;
+        ResoniteMemberFilter.Set(track.GetResoniteComponent<FrooxEngine.UIX.RectTransform>().Container,
+            "AnchorMin", "AnchorMax", "OffsetMin", "OffsetMax");
+        SetupSliderImage(track, true, new Color(0.08f, 0.1f, 0.15f, 1f));
+        var caption = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.Text>(track).Binding;
         caption.Content = name == "[Resonite] Track" ? "Value" : name.Substring("[Resonite] ".Length);
         caption.Size = 0.022f;
         caption.InteractionTarget = false;
+        caption.Color = Color.white.ToColorX_sRGB();
+        ResoniteMemberFilter.Set(track.GetResoniteComponent<FrooxEngine.UIX.Text>().Container,
+            "Content", "Size", "InteractionTarget", "Color");
 
-        var slider = ConverterComponentHelper.GetOrAdd<ContinuousPuppetSliderWrapper>(track).Data;
+        var slider = ConverterComponentHelper.GetOrAdd<ContinuousPuppetSliderWrapper>(track).Binding;
         slider.Min = min;
         slider.Max = max;
         slider.Value = initial;
@@ -411,17 +419,30 @@ public static class AvatarToggleBuilder
         slider.AnchorOffset = new Vector2(0, 0.5f);
 
         var handle = GeneratedObjectHelper.EnsureChild(track.transform, "[Resonite] Handle");
-        var handleRect = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.RectTransformWrapper>(handle).Data;
+        var handleRect = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.RectTransform>(handle).Binding;
         handleRect.OffsetMin = new Vector2(-0.012f, -0.035f);
         handleRect.OffsetMax = new Vector2(0.012f, 0.035f);
+        ResoniteMemberFilter.Set(handle.GetResoniteComponent<FrooxEngine.UIX.RectTransform>().Container,
+            "AnchorMin", "AnchorMax", "OffsetMin", "OffsetMax");
         slider.HandleAnchorMinDrive = handleRect.AnchorMin_Element.Member;
         slider.HandleAnchorMaxDrive = handleRect.AnchorMax_Element.Member;
-        ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.ImageWrapper>(handle).Data.InteractionTarget = false;
+        SetupSliderImage(handle, false, new Color(0.2f, 0.65f, 1f, 1f));
+        ResoniteMemberFilter.Set(track.GetResoniteComponent<ContinuousPuppetSliderWrapper>().Container,
+            "Min", "Max", "Value", "Clamp", "Integers", "Power", "AnchorOffset",
+            "HandleAnchorMinDrive", "HandleAnchorMaxDrive");
 
-        var copy = ConverterComponentHelper.GetOrAdd<ValueCopyFloatWrapper>(track).Data;
+        var copy = ConverterComponentHelper.GetOrAdd<ValueCopyFloatWrapper>(track).Binding;
         copy.Source = slider.Value_Element.Member;
         copy.Target = value;
         copy.WriteBack = true;
+    }
+
+    static void SetupSliderImage(GameObject target, bool interactionTarget, Color color)
+    {
+        var image = ConverterComponentHelper.GetOrAdd<FrooxEngine.UIX.Image>(target);
+        image.Binding.InteractionTarget = interactionTarget;
+        image.Binding.Tint = color.ToColorX_sRGB();
+        ResoniteMemberFilter.Set(image.Container, "InteractionTarget", "Tint");
     }
 
     /// <summary>Blends a 3x3 axis grid continuously along X, then Y.</summary>
@@ -432,8 +453,8 @@ public static class AvatarToggleBuilder
             throw new ArgumentException("Axis grid needs nine samples", nameof(grid));
 
         var axes = EnsureCount<ValueMultiDriverFloatWrapper>(stateObject, 2);
-        var x = axes[0].Data;
-        var y = axes[1].Data;
+        var x = axes[0].Binding;
+        var y = axes[1].Binding;
         x.Value = defaults.x;
         y.Value = defaults.y;
         x.Drives.Clear();
@@ -448,7 +469,7 @@ public static class AvatarToggleBuilder
         for (var i = 0; i < floats.Count; i++)
         {
             var target = floats[i];
-            var outer = outerDrivers[i].Data;
+            var outer = outerDrivers[i].Binding;
             outer.Interpolate = true;
             outer.Points.Clear();
             target.ResolveField(context, field => outer.Target = field);
@@ -456,9 +477,9 @@ public static class AvatarToggleBuilder
             for (var row = 0; row < 3; row++)
             {
                 var index = i * 3 + row;
-                var rowValue = rowValues[index].Data;
+                var rowValue = rowValues[index].Binding;
                 rowValue.Drives.Clear();
-                var inner = rowDrivers[index].Data;
+                var inner = rowDrivers[index].Binding;
                 inner.Interpolate = true;
                 inner.Points.Clear();
                 inner.Target = rowValue.Value_Element.Member;
@@ -472,7 +493,7 @@ public static class AvatarToggleBuilder
                 }
                 var outerPoint = outer.Points.Add();
                 outerPoint.Position = row - 1;
-                var copy = copies[index].Data;
+                var copy = copies[index].Binding;
                 copy.Source = rowValue.Value_Element.Member;
                 copy.Target = outerPoint.Value_Element.Member;
                 copy.WriteBack = false;
@@ -487,7 +508,7 @@ public static class AvatarToggleBuilder
         for (var i = 0; i < bools.Count; i++)
         {
             var target = bools[i];
-            var outer = boolOuter[i].Data;
+            var outer = boolOuter[i].Binding;
             outer.Interpolate = false;
             outer.Points.Clear();
             target.ResolveField(context, field => outer.Target = field);
@@ -495,9 +516,9 @@ public static class AvatarToggleBuilder
             for (var row = 0; row < 3; row++)
             {
                 var index = i * 3 + row;
-                var rowValue = boolValues[index].Data;
+                var rowValue = boolValues[index].Binding;
                 rowValue.Drives.Clear();
-                var inner = boolRows[index].Data;
+                var inner = boolRows[index].Binding;
                 inner.Interpolate = false;
                 inner.Points.Clear();
                 inner.Target = rowValue.Value_Element.Member;
@@ -511,7 +532,7 @@ public static class AvatarToggleBuilder
                 }
                 var outerPoint = outer.Points.Add();
                 outerPoint.Position = row - 1;
-                var copy = boolCopies[index].Data;
+                var copy = boolCopies[index].Binding;
                 copy.Source = rowValue.Value_Element.Member;
                 copy.Target = outerPoint.Value_Element.Member;
                 copy.WriteBack = false;
@@ -527,12 +548,12 @@ public static class AvatarToggleBuilder
         for (var i = 0; i < materials.Count; i++)
         {
             var target = materials[i];
-            var mux = materialMuxes[i].Data;
+            var mux = materialMuxes[i].Binding;
             mux.Assets.Clear();
             foreach (var sample in grid)
                 mux.Assets.Add(GetMaterial(context, sample.ResolveMaterial(target)));
             target.ResolveSlot(context, slot => mux.Target_Element.Data = slot);
-            var outer = materialOuter[i].Data;
+            var outer = materialOuter[i].Binding;
             outer.Interpolate = false;
             outer.Points.Clear();
             outer.Target = mux.Index_Element.Member;
@@ -540,9 +561,9 @@ public static class AvatarToggleBuilder
             for (var row = 0; row < 3; row++)
             {
                 var index = i * 3 + row;
-                var rowValue = materialValues[index].Data;
+                var rowValue = materialValues[index].Binding;
                 rowValue.Drives.Clear();
-                var inner = materialRows[index].Data;
+                var inner = materialRows[index].Binding;
                 inner.Interpolate = false;
                 inner.Points.Clear();
                 inner.Target = rowValue.Value_Element.Member;
@@ -555,7 +576,7 @@ public static class AvatarToggleBuilder
                 }
                 var outerPoint = outer.Points.Add();
                 outerPoint.Position = row - 1;
-                var copy = materialCopies[index].Data;
+                var copy = materialCopies[index].Binding;
                 copy.Source = rowValue.Value_Element.Member;
                 copy.Target = outerPoint.Value_Element.Member;
                 copy.WriteBack = false;
@@ -572,17 +593,17 @@ public static class AvatarToggleBuilder
     public static void BuildAxisPreset(GameObject item, FrooxEngine.IField<float> x, FrooxEngine.IField<float> y, Vector2 position)
     {
         var setters = EnsureCount<ButtonValueSetFloatWrapper>(item, 2);
-        setters[0].Data.TargetValue = x;
-        setters[0].Data.SetValue = position.x;
-        setters[1].Data.TargetValue = y;
-        setters[1].Data.SetValue = position.y;
+        setters[0].Binding.TargetValue = x;
+        setters[0].Binding.SetValue = position.x;
+        setters[1].Binding.TargetValue = y;
+        setters[1].Binding.SetValue = position.y;
     }
 
     /// <summary>Opens or closes a draggable puppet panel from a context menu item.</summary>
     public static void BuildContinuousSliderToggle(GameObject item, GameObject panel)
     {
         panel.SetActive(false);
-        var button = ConverterComponentHelper.GetOrAdd<FrooxEngine.ButtonToggleWrapper>(item).Data;
+        var button = ConverterComponentHelper.GetOrAdd<FrooxEngine.ButtonToggle>(item).Binding;
         button.TargetValue = new SlotActiveField(panel.transform);
     }
 
@@ -591,7 +612,7 @@ public static class AvatarToggleBuilder
     /// </summary>
     public static void BuildPuppetStep(GameObject item, FrooxEngine.IField<float> puppetValue, float value)
     {
-        var button = ConverterComponentHelper.GetOrAdd<ButtonValueSetFloatWrapper>(item).Data;
+        var button = ConverterComponentHelper.GetOrAdd<ButtonValueSetFloatWrapper>(item).Binding;
         button.TargetValue = puppetValue;
         button.SetValue = value;
     }
@@ -602,14 +623,14 @@ public static class AvatarToggleBuilder
 
         SetupItem(menu, label);
 
-        var submenu = ConverterComponentHelper.GetOrAdd<FrooxEngine.ContextMenuSubmenuWrapper>(menu).Data;
+        var submenu = ConverterComponentHelper.GetOrAdd<FrooxEngine.ContextMenuSubmenu>(menu).Binding;
         submenu.ItemsRoot = menu.GetSlot();
 
         if (isRoot)
         {
             // Registers the item in the root context menu of the user wearing the avatar
-            var root = ConverterComponentHelper.GetOrAdd<FrooxEngine.RootContextMenuItemWrapper>(menu).Data;
-            root.Item = menu.GetComponent<FrooxEngine.ContextMenuItemSourceWrapper>().Data;
+            var root = ConverterComponentHelper.GetOrAdd<FrooxEngine.RootContextMenuItem>(menu).Binding;
+            root.Item = menu.GetResoniteComponent<FrooxEngine.ContextMenuItemSource>().Binding;
         }
 
         return menu;
@@ -617,10 +638,10 @@ public static class AvatarToggleBuilder
 
     static void SetupItem(GameObject obj, string label)
     {
-        var item = ConverterComponentHelper.GetOrAdd<FrooxEngine.ContextMenuItemSourceWrapper>(obj);
-        ResoniteMemberFilter.Set(item, "Label");
+        var item = ConverterComponentHelper.GetOrAdd<FrooxEngine.ContextMenuItemSource>(obj);
+        ResoniteMemberFilter.Set(item.Container, "Label");
 
-        item.Data.Label = label;
+        item.Binding.Label = label;
     }
 
     static FrooxEngine.IAssetProvider<FrooxEngine.Material> GetMaterial(IConversionContext context, Material material) =>
@@ -629,16 +650,19 @@ public static class AvatarToggleBuilder
     static List<MaterialSlotTarget> MaterialSlots(IEnumerable<ToggleState> states) =>
         states.SelectMany(s => s.Materials.Values).GroupBy(v => v.target.Key).Select(g => g.First().target).ToList();
 
-    static List<T> EnsureCount<T>(GameObject obj, int count) where T : Component
+    static List<ResRef<T>> EnsureCount<T>(GameObject obj, int count)
+        where T : ResoniteObject, FrooxEngine.IWorldElement, new()
     {
-        var list = obj.GetComponents<T>().ToList();
+        var list = obj.GetComponents<ResoniteComponent>()
+            .Where(component => component.Data is T)
+            .Select(component => new ResRef<T>(component)).ToList();
 
         while (list.Count < count)
-            list.Add(obj.AddComponent<T>());
+            list.Add(obj.AddResoniteComponent<T>());
 
         while (list.Count > count)
         {
-            UnityEngine.Object.DestroyImmediate(list[list.Count - 1]);
+            UnityEngine.Object.DestroyImmediate(list[list.Count - 1].Container);
             list.RemoveAt(list.Count - 1);
         }
 

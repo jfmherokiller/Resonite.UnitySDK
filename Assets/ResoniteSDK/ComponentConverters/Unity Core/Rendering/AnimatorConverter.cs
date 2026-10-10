@@ -106,6 +106,15 @@ public class AnimatorConverter : ResoniteComponentConverter<UnityEngine.Animator
 {
     public ResRef<BipedRig> BipedRig;
 
+    [Tooltip("Add a wearer-only first-person head hiding toggle to the Resonite avatar menu.")]
+    public bool AddHeadHideToggle = true;
+
+    [Tooltip("Start with the head hidden in the wearer's first-person view, including VR.")]
+    public bool HideHeadByDefault = true;
+
+    [HideInInspector]
+    public FirstPersonHeadHideToggle HeadHide = new FirstPersonHeadHideToggle();
+
     protected override void UpdateConversion(UnityEngine.Animator target, IConversionContext context)
     {
         if (target.avatar != null && target.avatar.isValid && target.avatar.isHuman)
@@ -114,13 +123,22 @@ public class AnimatorConverter : ResoniteComponentConverter<UnityEngine.Animator
                 BipedRig = gameObject.AddResoniteComponent<BipedRig>();
 
             BipedRig.Binding.SetFrom(target);
+            if (AddHeadHideToggle)
+                HeadHide.Apply(target.transform, target.GetBoneTransform(HumanBodyBones.Head), HideHeadByDefault, context);
+            else
+                HeadHide.Clear();
         }
-        else if (BipedRig != null)
-            DestroyImmediate(BipedRig);
+        else
+        {
+            HeadHide.Clear();
+            if (BipedRig != null)
+                DestroyImmediate(BipedRig);
+        }
     }
 
     protected override void Cleanup()
     {
+        HeadHide.Clear();
         if (BipedRig != null)
             DestroyImmediate(BipedRig);
     }

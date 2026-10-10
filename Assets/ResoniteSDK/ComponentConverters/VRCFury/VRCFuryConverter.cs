@@ -23,7 +23,7 @@ using UnityEngine;
 [ConvertsComponentType(VRCFuryTypes.VRCFury)]
 public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActiveOverride
 {
-    public List<FrooxEngine.VirtualParentWrapper> Links = new List<FrooxEngine.VirtualParentWrapper>();
+    public List<ResRef<FrooxEngine.VirtualParent>> Links = new List<ResRef<FrooxEngine.VirtualParent>>();
     public List<ObjectStateOverride> ObjectStates = new List<ObjectStateOverride>();
 
     // Generated helper objects (not saved with the scene)
@@ -366,28 +366,28 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
 
         for (int i = Links.Count - 1; i >= 0; i--)
         {
-            if (Links[i] != null && props.Contains(Links[i].gameObject))
+            if (Links[i] != null && props.Contains(Links[i].Container.gameObject))
                 continue;
 
             if (Links[i] != null)
-                DestroyImmediate(Links[i]);
+                DestroyImmediate(Links[i].Container);
 
             Links.RemoveAt(i);
         }
 
         foreach (var request in requests)
         {
-            var wrapper = Links.FirstOrDefault(l => l.gameObject == request.Prop.gameObject);
+            var wrapper = Links.FirstOrDefault(l => l.Container.gameObject == request.Prop.gameObject);
 
             if (wrapper == null)
             {
-                wrapper = request.Prop.gameObject.AddComponent<FrooxEngine.VirtualParentWrapper>();
+                wrapper = request.Prop.gameObject.AddResoniteComponent<FrooxEngine.VirtualParent>();
                 Links.Add(wrapper);
             }
 
-            ResoniteMemberFilter.Set(wrapper, "OverrideParent", "LocalPosition", "LocalRotation", "LocalScale");
+            ResoniteMemberFilter.Set(wrapper.Container, "OverrideParent", "LocalPosition", "LocalRotation", "LocalScale");
 
-            var parent = wrapper.Data;
+            var parent = wrapper.Binding;
             var prop = request.Prop;
             var target = request.Target;
 
@@ -454,7 +454,7 @@ public class VRCFuryConverter : ResoniteComponentConverter<Component>, ISlotActi
     {
         foreach (var link in Links)
             if (link != null)
-                DestroyImmediate(link);
+                DestroyImmediate(link.Container);
 
         Links.Clear();
 

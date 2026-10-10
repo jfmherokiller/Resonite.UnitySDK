@@ -1,8 +1,7 @@
-using UnityEngine;
+using System;
 
-// Unity can't add generic components, so this is a concrete variant of the generic Resonite component
-[AddComponentMenu("FrooxEngine/Utility/ValueMultiplexer<float>")]
-public class ValueMultiplexerFloatWrapper : FrooxEngine.ValueMultiplexerWrapper<float>
+[Serializable]
+[ResoniteTypeName("[FrooxEngine]FrooxEngine.ValueMultiplexer<float>")]
+public class ValueMultiplexerFloatWrapper : FrooxEngine.ValueMultiplexer<float>
 {
-    public override string TypeName => "[FrooxEngine]FrooxEngine.ValueMultiplexer<float>";
 }

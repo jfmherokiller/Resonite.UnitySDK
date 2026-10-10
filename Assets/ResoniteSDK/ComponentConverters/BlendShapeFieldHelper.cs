@@ -45,12 +45,15 @@ public static class BlendShapeFieldHelper
     /// </summary>
     public static FrooxEngine.IField<float> GetField(SkinnedMeshRenderer renderer, int index)
     {
-        var wrapper = renderer.GetComponent<FrooxEngine.SkinnedMeshRendererWrapper>();
-
-        if (wrapper == null)
+        if (renderer == null || index < 0)
             return null;
 
-        var weights = wrapper.Data.BlendShapeWeights;
+        var binding = MeshRendererHelper.GetConvertedBinding(renderer) as FrooxEngine.SkinnedMeshRenderer;
+
+        if (binding == null)
+            return null;
+
+        var weights = binding.BlendShapeWeights;
 
         // The renderer might've not been updated yet. The list elements are reused on update,
         // so we can create them ahead of time.
