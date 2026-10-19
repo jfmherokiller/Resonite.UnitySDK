@@ -166,12 +166,15 @@ public static class AnimatorToggleAnalyzer
     /// - Motion time driven by the parameter, evaluating the clip at that point
     /// </summary>
     public static ToggleState SampleFloat(IEnumerable<RuntimeAnimatorController> controllers, string parameter, float value,
-        Func<string, Transform> resolvePath, ICollection<string> unsupported) =>
-        SampleParameters(controllers, new Dictionary<string, float> { [parameter] = value }, resolvePath, unsupported);
+        Func<string, Transform> resolvePath, ICollection<string> unsupported, IReadOnlyDictionary<string, float> rest = null) =>
+        SampleParameters(controllers, new Dictionary<string, float> { [parameter] = value }, resolvePath, unsupported, rest);
 
     /// <summary>Samples all supplied parameters together, so a 2D blend tree is evaluated once at the actual point.</summary>
+    /// <param name="rest">Values of other parameters while sampling (e.g. hand gestures at rest). They only reject
+    /// transitions whose conditions they fail; they never select states on their own.</param>
     public static ToggleState SampleParameters(IEnumerable<RuntimeAnimatorController> controllers,
-        IReadOnlyDictionary<string, float> values, Func<string, Transform> resolvePath, ICollection<string> unsupported)
+        IReadOnlyDictionary<string, float> values, Func<string, Transform> resolvePath, ICollection<string> unsupported,
+        IReadOnlyDictionary<string, float> rest = null)
     {
         var state = new ToggleState();
 
@@ -188,10 +191,13 @@ public static class AnimatorToggleAnalyzer
                 .ToDictionary(p => p.name, p => p.type);
             if (types.Count == 0)
                 continue;
+            var restValues = rest?.Where(p => !values.ContainsKey(p.Key)).ToDictionary(p => p.Key, p => p.Value)
+                ?? new Dictionary<string, float>();
+            var restTypes = controller.parameters.Where(p => restValues.ContainsKey(p.name)).ToDictionary(p => p.name, p => p.type);
 
             foreach (var layer in controller.layers)
             {
-                var reached = new HashSet<AnimatorState>(FindStates(layer.stateMachine, values, types));
+                var reached = new HashSet<AnimatorState>(FindStates(layer.stateMachine, values, types, restValues, restTypes));
                 foreach (var animatorState in AllStates(layer.stateMachine))
                 {
                     if (animatorState.motion is BlendTree tree &&
@@ -354,7 +360,8 @@ public static class AnimatorToggleAnalyzer
             new Dictionary<string, AnimatorControllerParameterType> { [parameter] = type });
 
     static IEnumerable<AnimatorState> FindStates(AnimatorStateMachine stateMachine,
-        IReadOnlyDictionary<string, float> values, IReadOnlyDictionary<string, AnimatorControllerParameterType> types)
+        IReadOnlyDictionary<string, float> values, IReadOnlyDictionary<string, AnimatorControllerParameterType> types,
+        IReadOnlyDictionary<string, float> rest = null, IReadOnlyDictionary<string, AnimatorControllerParameterType> restTypes = null)
     {
         var states = new HashSet<AnimatorState>();
         void Follow(AnimatorTransitionBase transition)
@@ -362,6 +369,9 @@ public static class AnimatorToggleAnalyzer
             var conditions = transition.conditions.Where(c => values.ContainsKey(c.parameter)).ToList();
             if (conditions.Count == 0 || !conditions.All(c =>
                     types.TryGetValue(c.parameter, out var type) && IsSatisfied(c, type, values[c.parameter])))
+                return;
+            if (rest != null && transition.conditions.Any(c =>
+                    restTypes.TryGetValue(c.parameter, out var type) && !IsSatisfied(c, type, rest[c.parameter])))
                 return;
             if (transition.destinationState != null)
                 states.Add(transition.destinationState);

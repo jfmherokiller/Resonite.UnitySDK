@@ -29,6 +29,17 @@ public class ExpressionMenuSource
     /// Resolves the animated paths to transforms
     /// </summary>
     public Func<string, Transform> ResolvePath;
+
+    /// <summary>
+    /// Toggle keys driven by other converters (visemes, jaw, eyelids); gesture expressions leave them alone
+    /// </summary>
+    public HashSet<string> ReservedKeys = new HashSet<string>();
+
+    /// <summary>
+    /// VRChat built-in parameters at rest while sampling menu controls (no hand gesture), so states gated on them
+    /// (e.g. gesture faces behind an expression lock) aren't mistaken for what a toggle does
+    /// </summary>
+    public Dictionary<string, float> RestParameters = new Dictionary<string, float> { ["GestureLeft"] = 0, ["GestureRight"] = 0 };
 }
 
 /// <summary>
@@ -179,8 +190,38 @@ public static class VRCExpressionMenuToggles
                 source.Controllers.Add(ReflectionAccessor.GetObject<RuntimeAnimatorController>(layer, "animatorController"));
 
         source.ResolvePath = path => string.IsNullOrEmpty(path) ? root : root.Find(path);
+        ReserveDescriptorBlendShapes(descriptor, source.ReservedKeys);
 
         return source;
+    }
+
+    // Shapes the avatar driver (visemes, jaw) and Resonite's eye setup (eyelids) already drive.
+    static void ReserveDescriptorBlendShapes(Component descriptor, HashSet<string> reserved)
+    {
+        void Reserve(SkinnedMeshRenderer mesh, int index)
+        {
+            if (mesh != null && mesh.sharedMesh != null && index >= 0 && index < mesh.sharedMesh.blendShapeCount)
+                reserved.Add(new BlendShapeTarget(mesh, index).Key);
+        }
+
+        var lipMesh = ReflectionAccessor.GetObject<SkinnedMeshRenderer>(descriptor, "VisemeSkinnedMesh");
+        if (lipMesh != null && lipMesh.sharedMesh != null)
+        {
+            foreach (var shape in ReflectionAccessor.Get<string[]>(descriptor, "VisemeBlendShapes") ?? new string[0])
+                if (!string.IsNullOrEmpty(shape))
+                    Reserve(lipMesh, lipMesh.sharedMesh.GetBlendShapeIndex(shape));
+            var mouthOpen = ReflectionAccessor.Get(descriptor, "MouthOpenBlendShapeName", "");
+            if (!string.IsNullOrEmpty(mouthOpen))
+                Reserve(lipMesh, lipMesh.sharedMesh.GetBlendShapeIndex(mouthOpen));
+        }
+
+        var eyes = ReflectionAccessor.GetRaw(descriptor, "customEyeLookSettings");
+        if (eyes != null && ReflectionAccessor.GetEnumName(eyes, "eyelidType") == "Blendshapes")
+        {
+            var eyelidMesh = ReflectionAccessor.GetObject<SkinnedMeshRenderer>(eyes, "eyelidsSkinnedMesh");
+            foreach (var index in ReflectionAccessor.Get<int[]>(eyes, "eyelidsBlendshapes") ?? new int[0])
+                Reserve(eyelidMesh, index);
+        }
     }
 
     static void Build(Component owner, ExpressionMenuSource source, HashSet<string> claimed, IConversionContext context,
@@ -190,7 +231,10 @@ public static class VRCExpressionMenuToggles
         var menus = source.Menus.Where(m => m.menu is UnityEngine.Object o && o != null).ToList();
 
         if (menus.Count == 0)
+        {
+            BuildGestureExpressions(owner, source, controllers, claimed, context, report, nextItem, nextSelector);
             return;
+        }
 
         if (controllers.Count == 0)
         {
@@ -244,7 +288,95 @@ public static class VRCExpressionMenuToggles
                 report.Info("unsupported:" + parameter, $"Menu toggle for {parameter} also animates {string.Join(", ", unsupported)}, " +
                     $"which isn't converted.", owner);
         }
+
+        // After the menu, so menu toggles keep the properties they share with gesture faces.
+        BuildGestureExpressions(owner, source, controllers, claimed, context, report, nextItem, nextSelector);
     }
+
+    static readonly string[] GESTURE_NAMES = { "Neutral", "Fist", "Open", "Point", "Peace", "RockNRoll", "Gun", "Thumbs up" };
+    static readonly (string parameter, string weight, string hand)[] GESTURE_HANDS =
+        { ("GestureLeft", "GestureLeftWeight", "L"), ("GestureRight", "GestureRightWeight", "R") };
+
+    /// <summary>
+    /// Hand-gesture driven FX states (usually facial expressions) have no Resonite equivalent, so they become an
+    /// "Expressions" selector: one option per distinct gesture state, plus Neutral.
+    /// </summary>
+    static void BuildGestureExpressions(Component owner, ExpressionMenuSource source, List<RuntimeAnimatorController> controllers,
+        HashSet<string> claimed, IConversionContext context, ConversionReporter report,
+        Func<string[], string, string, GameObject> nextItem, Func<string, GameObject> nextSelector)
+    {
+        var used = GESTURE_HANDS.Where(h => controllers.OfType<UnityEditor.Animations.AnimatorController>()
+            .Any(c => c.parameters.Any(p => p.name == h.parameter))).ToList();
+        if (used.Count == 0)
+            return;
+
+        var unsupported = new HashSet<string>();
+        var labels = new List<string> { "Neutral" };
+        var states = new List<ToggleState> { new ToggleState() };
+        var signatures = new Dictionary<string, int>();
+
+        foreach (var (parameter, weight, hand) in used)
+            for (var gesture = 1; gesture < GESTURE_NAMES.Length; gesture++)
+            {
+                var state = AnimatorToggleAnalyzer.SampleParameters(controllers,
+                    new Dictionary<string, float> { [parameter] = gesture, [weight] = 1 }, source.ResolvePath, unsupported,
+                    source.RestParameters);
+                foreach (var key in state.Keys.Where(source.ReservedKeys.Contains).ToList())
+                    state.Remove(key);
+                if (state.IsEmpty)
+                    continue;
+
+                var label = $"{GestureStateName(controllers, parameter, gesture) ?? GESTURE_NAMES[gesture]} ({hand} {GESTURE_NAMES[gesture]})";
+                var signature = Signature(state);
+                if (signatures.TryGetValue(signature, out var existing))
+                {
+                    labels[existing] += $" / {hand} {GESTURE_NAMES[gesture]}";
+                    continue;
+                }
+
+                signatures[signature] = states.Count;
+                labels.Add(label);
+                states.Add(state);
+            }
+
+        if (states.Count == 1)
+            return;
+
+        Claim(claimed, "gestures", report, owner, states.ToArray());
+        if (states.Skip(1).All(s => s.IsEmpty))
+            return;
+
+        var indexField = AvatarToggleBuilder.BuildSelector(nextSelector("[Resonite] Selector Gesture Expressions"), 0, states, context);
+        var folders = new[] { "Expressions" };
+        for (var i = 0; i < states.Count; i++)
+            AvatarToggleBuilder.BuildSelectorOption(nextItem(folders, labels[i], "Option"), indexField, i, 0);
+
+        report.Info("gestures", $"{states.Count - 1} hand-gesture expressions were converted into the Expressions menu " +
+            "(Resonite has no VRChat hand gestures).", owner);
+        if (unsupported.Count > 0)
+            report.Info("gesturesunsupported", $"Gesture expressions also animate {string.Join(", ", unsupported)}, which isn't converted.", owner);
+    }
+
+    // Name of the motion the FX layer plays for this gesture value (e.g. "Smile"), if any.
+    static string GestureStateName(List<RuntimeAnimatorController> controllers, string parameter, int value)
+    {
+        foreach (var controller in controllers.OfType<UnityEditor.Animations.AnimatorController>())
+            foreach (var layer in controller.layers)
+            {
+                var transitions = layer.stateMachine.anyStateTransitions.Cast<UnityEditor.Animations.AnimatorStateTransition>()
+                    .Concat(layer.stateMachine.states.SelectMany(s => s.state.transitions));
+                foreach (var transition in transitions)
+                    if (transition.destinationState?.motion != null && transition.conditions.Any(c => c.parameter == parameter
+                            && c.mode == UnityEditor.Animations.AnimatorConditionMode.Equals && Mathf.Approximately(c.threshold, value)))
+                        return transition.destinationState.motion.name;
+            }
+        return null;
+    }
+
+    static string Signature(ToggleState state) => string.Join("|",
+        state.Floats.OrderBy(p => p.Key).Select(p => $"{p.Key}={p.Value.value:0.###}")
+            .Concat(state.Bools.OrderBy(p => p.Key).Select(p => $"{p.Key}={p.Value.value}"))
+            .Concat(state.Materials.OrderBy(p => p.Key).Select(p => $"{p.Key}={p.Value.value.Resolve(p.Value.target)?.GetInstanceID()}")));
 
     static void BuildAxisPuppet(Component owner, ExpressionMenuSource source, List<RuntimeAnimatorController> controllers,
         Dictionary<string, (string type, float defaultValue)> parameters, List<MenuControl> puppets,
@@ -272,10 +404,10 @@ public static class VRCExpressionMenuToggles
         for (var row = -1; row <= 1; row++)
             for (var column = -1; column <= 1; column++)
                 grid.Add(AnimatorToggleAnalyzer.SampleParameters(controllers,
-                    AxisValues(names, new Vector2(column, row)), source.ResolvePath, unsupported));
+                    AxisValues(names, new Vector2(column, row)), source.ResolvePath, unsupported, source.RestParameters));
 
         var originalDefault = AnimatorToggleAnalyzer.SampleParameters(controllers, defaults,
-            source.ResolvePath, unsupported);
+            source.ResolvePath, unsupported, source.RestParameters);
         Claim(claimed, string.Join(",", names), report, owner, grid.ToArray());
         var sampledKeys = new HashSet<string>(grid.SelectMany(s => s.Keys));
         var defaultOnly = originalDefault.Keys.Where(key => !sampledKeys.Contains(key) && !claimed.Contains(key)).ToList();
@@ -456,7 +588,7 @@ public static class VRCExpressionMenuToggles
 
         var samples = Enumerable.Range(0, count + 1)
             .Select(i => Mathf.Lerp(min, 1, i / (float)count))
-            .Select(position => (position, state: AnimatorToggleAnalyzer.SampleFloat(controllers, parameter, position, source.ResolvePath, unsupported)))
+            .Select(position => (position, state: AnimatorToggleAnalyzer.SampleFloat(controllers, parameter, position, source.ResolvePath, unsupported, source.RestParameters)))
             .ToList();
 
         Claim(claimed, parameter, report, owner, samples.Select(s => s.state).ToArray());
@@ -492,7 +624,7 @@ public static class VRCExpressionMenuToggles
     // since such states are often unconditionally active rather than reached through a matching transition.
     static ToggleState ReadState(List<RuntimeAnimatorController> controllers, ExpressionMenuSource source, string parameter, float value,
         HashSet<string> unsupported) =>
-        AnimatorToggleAnalyzer.SampleFloat(controllers, parameter, value, source.ResolvePath, unsupported);
+        AnimatorToggleAnalyzer.SampleFloat(controllers, parameter, value, source.ResolvePath, unsupported, source.RestParameters);
 
     /// <summary>
     /// Removes properties already driven by previous toggles from the states and claims the rest

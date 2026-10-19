@@ -58,27 +58,16 @@ public class ExpressionPuppetAnalyzerTests
 
     sealed class PreviewSceneScope : System.IDisposable
     {
-        const System.Reflection.BindingFlags Flags =
-            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic;
-        static readonly System.Reflection.MethodInfo GetTarget = typeof(EditorSceneManager)
-            .GetMethod("GetTargetSceneForNewGameObjects", Flags);
-        static readonly System.Reflection.MethodInfo SetTarget = typeof(EditorSceneManager)
-            .GetMethod("SetTargetSceneForNewGameObjects", Flags, null, new[] { typeof(Scene) }, null);
-        static readonly System.Reflection.MethodInfo ClearTarget = typeof(EditorSceneManager)
-            .GetMethod("ClearTargetSceneForNewGameObjects", Flags);
-        readonly Scene previousTarget;
         readonly Scene preview;
+        readonly NewObjectSceneScope target;
 
         public PreviewSceneScope()
         {
-            if (GetTarget == null || SetTarget == null || ClearTarget == null)
-                throw new System.NotSupportedException("The editor must support isolated GameObject creation for these fixtures.");
-            previousTarget = (Scene)GetTarget.Invoke(null, null);
             preview = EditorSceneManager.NewPreviewScene();
             try
             {
                 // Route converter-created objects here too, without changing or dirtying the active scene.
-                SetTarget.Invoke(null, new object[] { preview });
+                target = new NewObjectSceneScope(preview);
             }
             catch
             {
@@ -91,10 +80,7 @@ public class ExpressionPuppetAnalyzerTests
         {
             try
             {
-                if (previousTarget.IsValid())
-                    SetTarget.Invoke(null, new object[] { previousTarget });
-                else
-                    ClearTarget.Invoke(null, null);
+                target.Dispose();
             }
             finally
             {
@@ -104,7 +90,7 @@ public class ExpressionPuppetAnalyzerTests
     }
 
     public enum FakeControlType { TwoAxisPuppet, FourAxisPuppet, RadialPuppet, Toggle, Button }
-    public enum FakeValueType { Float }
+    public enum FakeValueType { Float, Bool }
     public class FakeParameter { public string name; public FakeValueType valueType; public float defaultValue; }
     public class FakeParameterAsset { public FakeParameter[] parameters; }
     public class FakeControl
@@ -384,6 +370,90 @@ public class ExpressionPuppetAnalyzerTests
             VRCExpressionMenuToggles.Clear(items, selectors);
             Object.DestroyImmediate(clip);
             Object.DestroyImmediate(tree);
+            Object.DestroyImmediate(controller);
+            Object.DestroyImmediate(menu);
+            Object.DestroyImmediate(root);
+        }
+    }
+
+    [Test]
+    public void HandGesturesBecomeExpressionSelector()
+    {
+        using var scene = new PreviewSceneScope();
+        var root = new GameObject("Avatar");
+        GameObject Child(string name)
+        {
+            var child = new GameObject(name);
+            child.transform.SetParent(root.transform);
+            child.SetActive(false);
+            return child;
+        }
+        var smile = Child("Smile");
+        var frown = Child("Frown");
+        var mouth = Child("Mouth");
+        var menu = ScriptableObject.CreateInstance<FakeMenu>();
+        var controller = new AnimatorController();
+        var clips = new List<AnimationClip>();
+        var items = new List<GameObject>();
+        var selectors = new List<GameObject>();
+        AnimationClip Clip(string name, params string[] paths)
+        {
+            var clip = new AnimationClip { name = name };
+            foreach (var path in paths)
+                AnimationUtility.SetEditorCurve(clip, EditorCurveBinding.FloatCurve(path, typeof(GameObject), "m_IsActive"),
+                    AnimationCurve.Constant(0, 1, 1));
+            clips.Add(clip);
+            return clip;
+        }
+        try
+        {
+            controller.AddParameter("GestureLeft", AnimatorControllerParameterType.Int);
+            controller.AddParameter("GestureRight", AnimatorControllerParameterType.Int);
+            controller.AddParameter("Lock", AnimatorControllerParameterType.Bool);
+            controller.AddLayer("Left");
+            controller.AddLayer("Right");
+            void Gesture(int layer, string parameter, int value, AnimationClip clip)
+            {
+                var machine = controller.layers[layer].stateMachine;
+                var state = machine.AddState(clip.name);
+                state.motion = clip;
+                var transition = machine.AddAnyStateTransition(state);
+                transition.AddCondition(AnimatorConditionMode.Equals, value, parameter);
+                // Common "expression lock": faces only follow gestures while unlocked.
+                transition.AddCondition(AnimatorConditionMode.IfNot, 0, "Lock");
+            }
+            controller.layers[0].stateMachine.AddState("Idle");
+            controller.layers[1].stateMachine.AddState("Idle");
+            Gesture(0, "GestureLeft", 1, Clip("Happy", "Smile", "Mouth"));
+            Gesture(1, "GestureRight", 2, Clip("Grumpy", "Frown"));
+            Gesture(1, "GestureRight", 3, Clip("Happy Too", "Smile", "Mouth"));
+
+            var source = new ExpressionMenuSource { ResolvePath = path => path == "" ? root.transform : root.transform.Find(path) };
+            var lockParameter = new FakeParameter { name = "Lock", valueType = FakeValueType.Bool };
+            menu.controls.Add(new FakeControl { name = "Lock", type = FakeControlType.Toggle, parameter = lockParameter, value = 1 });
+            source.Menus.Add((menu, new string[0]));
+            source.Parameters.Add(new FakeParameterAsset { parameters = new[] { lockParameter } });
+            source.Controllers.Add(controller);
+            source.ReservedKeys.Add(new ObjectActiveTarget(mouth.transform).Key);
+            VRCExpressionMenuToggles.Apply(root.transform, new[] { source }, root.transform, items, selectors,
+                null, new ConversionReporter());
+
+            var names = items.Select(i => i.name).ToList();
+            // Unlocked with no gesture is the neutral face, so the lock toggle alone animates nothing.
+            Assert.That(names, Has.None.Contains("Lock"));
+            Assert.That(names, Has.Some.Contains("Neutral"));
+            Assert.That(names, Has.Some.Contains("Happy (L Fist) / R Point"), "identical faces share one option");
+            Assert.That(names, Has.Some.Contains("Grumpy (R Open)"));
+            Assert.AreEqual(3, names.Count);
+            Assert.IsTrue(items.All(i => i.transform.parent.name.Contains("Expressions")));
+            var selector = selectors.Single(s => s.name == "[Resonite] Selector Gesture Expressions");
+            // Reserved (e.g. viseme/eyelid) properties stay with their own drivers.
+            Assert.AreEqual(2, BindingsInChildren<ValueMultiplexerBoolWrapper>(selector).Length);
+        }
+        finally
+        {
+            VRCExpressionMenuToggles.Clear(items, selectors);
+            foreach (var clip in clips) Object.DestroyImmediate(clip);
             Object.DestroyImmediate(controller);
             Object.DestroyImmediate(menu);
             Object.DestroyImmediate(root);
