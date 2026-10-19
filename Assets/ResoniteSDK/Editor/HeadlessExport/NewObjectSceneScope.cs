@@ -5,7 +5,7 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Routes new GameObjects (Instantiate, new GameObject) into a given scene until disposed.
-/// Needed because the editor can pin new objects to the user's scene regardless of the active scene.
+/// Needed because Instantiate of a scene object otherwise lands in the original's scene.
 /// </summary>
 public sealed class NewObjectSceneScope : IDisposable
 {
@@ -21,13 +21,16 @@ public sealed class NewObjectSceneScope : IDisposable
     {
         if (GetTarget == null || SetTarget == null || ClearTarget == null)
             throw new NotSupportedException("This editor cannot route new GameObjects into another scene.");
-        _previous = (Scene)GetTarget.Invoke(null, null);
+        // Without an override the getter reports the active scene; re-pinning that on dispose leaves a stale
+        // target once another scene is opened, and Unity crashes creating the next GameObject.
+        var current = (Scene)GetTarget.Invoke(null, null);
+        _previous = current.IsValid() && current != SceneManager.GetActiveScene() ? current : default;
         SetTarget.Invoke(null, new object[] { scene });
     }
 
     public void Dispose()
     {
-        if (_previous.IsValid())
+        if (_previous.IsValid() && _previous.isLoaded)
             SetTarget.Invoke(null, new object[] { _previous });
         else
             ClearTarget.Invoke(null, null);

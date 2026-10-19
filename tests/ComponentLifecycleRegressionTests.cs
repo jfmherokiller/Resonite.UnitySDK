@@ -306,31 +306,34 @@ public class ComponentLifecycleRegressionTests
 
     sealed class PreviewSceneScope : IDisposable
     {
-        const BindingFlags Flags = BindingFlags.Static | BindingFlags.NonPublic;
-        static readonly MethodInfo GetTarget = typeof(EditorSceneManager).GetMethod("GetTargetSceneForNewGameObjects", Flags);
-        static readonly MethodInfo SetTarget = typeof(EditorSceneManager).GetMethod("SetTargetSceneForNewGameObjects", Flags, null, new[] { typeof(Scene) }, null);
-        static readonly MethodInfo ClearTarget = typeof(EditorSceneManager).GetMethod("ClearTargetSceneForNewGameObjects", Flags);
-        readonly Scene previousTarget;
         readonly Scene preview;
+        readonly NewObjectSceneScope target;
 
         public PreviewSceneScope()
         {
-            if (GetTarget == null || SetTarget == null || ClearTarget == null)
-                throw new NotSupportedException("The editor must support isolated GameObject creation for these fixtures.");
-            previousTarget = (Scene)GetTarget.Invoke(null, null);
             preview = EditorSceneManager.NewPreviewScene();
-            try { SetTarget.Invoke(null, new object[] { preview }); }
-            catch { EditorSceneManager.ClosePreviewScene(preview); throw; }
+            try
+            {
+                // Route converter-created objects here too, without changing or dirtying the active scene.
+                target = new NewObjectSceneScope(preview);
+            }
+            catch
+            {
+                EditorSceneManager.ClosePreviewScene(preview);
+                throw;
+            }
         }
 
         public void Dispose()
         {
             try
             {
-                if (previousTarget.IsValid()) SetTarget.Invoke(null, new object[] { previousTarget });
-                else ClearTarget.Invoke(null, null);
+                target.Dispose();
             }
-            finally { EditorSceneManager.ClosePreviewScene(preview); }
+            finally
+            {
+                EditorSceneManager.ClosePreviewScene(preview);
+            }
         }
     }
 }
