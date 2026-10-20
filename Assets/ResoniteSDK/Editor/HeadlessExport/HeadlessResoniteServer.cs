@@ -70,7 +70,8 @@ public sealed class HeadlessResoniteServer : IDisposable
     /// <summary>Builds the bridge plugin against this headless build (cached by source and engine version).</summary>
     public static string BuildBridge(string headless, string pluginSource, string workDirectory, Action<string> log)
     {
-        var sources = Directory.GetFiles(pluginSource).Where(f => f.EndsWith(".cs") || f.EndsWith(".csproj")).OrderBy(f => f).ToArray();
+        // Stored as .txt so Unity neither compiles them nor drops them from .unitypackage exports.
+        var sources = Directory.GetFiles(pluginSource, "*.txt").OrderBy(f => f).ToArray();
         var version = Path.Combine(headless, "Build.version");
         string hash;
         using (var sha = SHA256.Create())
@@ -92,7 +93,7 @@ public sealed class HeadlessResoniteServer : IDisposable
             Directory.Delete(build, true);
         Directory.CreateDirectory(build);
         foreach (var source in sources)
-            File.Copy(source, Path.Combine(build, Path.GetFileName(source)));
+            File.Copy(source, Path.Combine(build, Path.GetFileNameWithoutExtension(source)));
 
         log("Building headless bridge plugin...");
         var project = Directory.GetFiles(build, "*.csproj").Single();

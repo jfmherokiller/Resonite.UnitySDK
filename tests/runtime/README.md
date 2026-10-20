@@ -68,7 +68,7 @@ Derive expected values from source data or decompiled native behavior, and docum
 
 ## Package export
 
-The Resonite SDK window's **Headless Package Export** section (`Assets/ResoniteSDK/Editor/HeadlessExport/`) converts a copy of the chosen object in a temporary scene, sends it to a private headless world and writes a `.resonitepackage` with Resonite's own exporter. It loads the bridge plugin in `HeadlessPlugin~` (Unity ignores `~` folders; it is built with `dotnet` against the headless install, cached under `Library/ResoniteHeadless`).
+The Resonite SDK window's **Headless Package Export** section (`Assets/ResoniteSDK/Editor/HeadlessExport/`) converts a copy of the chosen object in a temporary scene, sends it to a private headless world and writes a `.resonitepackage` with Resonite's own exporter. It loads the bridge plugin in `HeadlessPlugin/` (sources stored as `.txt` so Unity neither compiles nor drops them; built with `dotnet` against the headless install, cached under `Library/ResoniteHeadless`).
 
 From the command line, `harness.py serve --package-plugin` and `harness.py export-package` use the same plugin.
 

@@ -49,9 +49,8 @@ def find_headless():
 DEFAULT_INSTALL = find_headless()
 DEFAULT_HOME = Path(os.environ.get('RESONITE_HARNESS_HOME',
                                    Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'ResoniteConverterHarness'))
-# Same bridge plugin the Resonite SDK window builds (Unity ignores folders ending in ~).
-PLUGIN_PROJECT = (Path(__file__).resolve().parents[2] / 'Assets/ResoniteSDK/Editor/HeadlessExport/HeadlessPlugin~'
-                  / 'ResoniteUnitySDK.HeadlessBridge.csproj')
+# Same bridge plugin the Resonite SDK window builds.
+PLUGIN_SOURCE = Path(__file__).resolve().parents[2] / 'Assets/ResoniteSDK/Editor/HeadlessExport/HeadlessPlugin'
 PLUGIN_TYPE = '[ResoniteUnitySDK.HeadlessBridge]ResoniteUnitySDK.Headless.PackageBridge'
 
 
@@ -457,7 +456,15 @@ def load_bundles(paths):
 def build_plugin(home=DEFAULT_HOME):
     """Build the test-only headless plugin outside the repo and return its DLL path."""
     output = Path(home) / 'plugin'
-    result = subprocess.run(['dotnet', 'build', str(PLUGIN_PROJECT), '-c', 'Release', '-nologo', '-v:q',
+    # Sources are stored as *.txt (see HeadlessResoniteServer.BuildBridge); build a renamed copy.
+    source = Path(home) / 'plugin-src'
+    source.mkdir(parents=True, exist_ok=True)
+    for stale in source.iterdir():
+        stale.unlink()
+    for file in PLUGIN_SOURCE.glob('*.txt'):
+        (source / file.stem).write_bytes(file.read_bytes())
+    project = source / 'ResoniteUnitySDK.HeadlessBridge.csproj'
+    result = subprocess.run(['dotnet', 'build', str(project), '-c', 'Release', '-nologo', '-v:q',
                              '-o', str(output), f'-p:BaseIntermediateOutputPath={Path(home) / "plugin-obj"}/',
                              f'-p:ResoniteHeadless={DEFAULT_INSTALL.as_posix()}'],
                             capture_output=True, text=True)

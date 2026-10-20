@@ -22,7 +22,7 @@ public static class HeadlessPackageExport
         {
             var script = AssetDatabase.FindAssets("HeadlessResoniteServer t:MonoScript")
                 .Select(AssetDatabase.GUIDToAssetPath).First(p => p.EndsWith("/HeadlessResoniteServer.cs"));
-            return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(script), "HeadlessPlugin~"));
+            return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(script), "HeadlessPlugin"));
         }
     }
 
